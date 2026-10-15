@@ -9,6 +9,8 @@ Added in this fork (taehee-pd/harperSwift).
 | `*.png`, `icon.ico` | Windows and Linux | Upstream, unchanged |
 | `menu-bar-icon.png` | Menu bar template icon | Upstream, unchanged |
 
+Build the app with `just build-desktop-macos-unsigned` (or another macOS bundle recipe), not plain `pnpm tauri build`. The Node-based Tauri CLI starts `actool` with stdin closed, and Xcode's `actool` then fails with "Bad file descriptor" and "Failed to create a catalog from the Icon Studio document". The recipes put `harper-desktop/scripts/actool-shim` first on PATH, which runs `actool` with `/dev/null` as stdin. The upstream fix is [tauri-apps/tauri#15991](https://github.com/tauri-apps/tauri/pull/15991). If `actool` keeps failing after a failed build, run `pkill -f ibtoold` to restart its helper process.
+
 `icon.icon` keeps the Harper mark (round glasses with raised brows) from `logo.svg`, redrawn with heavier strokes so it reads at small sizes. Its three layers are full-canvas (1024 x 1024) SVGs: `brows`, `frame` (rims, bridge, temple tabs) and `lenses` (translucent glass).
 
 ## Re-rendering `icon.icns` after editing `icon.icon`

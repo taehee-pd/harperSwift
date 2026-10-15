@@ -1,4 +1,6 @@
-# Modified in this fork (taehee-pd/harperSwift): macOS desktop bundles target Apple Silicon only.
+# Modified in this fork (taehee-pd/harperSwift): macOS desktop bundles target Apple Silicon only,
+# the macOS bundle recipes run `actool` through `harper-desktop/scripts/actool-shim`, and the
+# unsigned recipe signs ad hoc.
 
 default:
   @just --list
@@ -231,6 +233,8 @@ build-desktop-macos-arm64: build-harperjs build-lint-framework build-components 
 
   cd "{{justfile_directory()}}/harper-desktop"
   pnpm install
+  # Fork: run `actool` with stdin open so it can compile `icons/icon.icon` (see the script).
+  export PATH="{{justfile_directory()}}/harper-desktop/scripts/actool-shim:$PATH"
   pnpm tauri build -b app,dmg --target aarch64-apple-darwin
 
 # Build Harper Desktop macOS bundles (Apple Silicon only in this fork).
@@ -240,6 +244,8 @@ build-desktop-macos: build-harperjs build-lint-framework build-components build-
 
   cd "{{justfile_directory()}}/harper-desktop"
   pnpm install
+  # Fork: run `actool` with stdin open so it can compile `icons/icon.icon` (see the script).
+  export PATH="{{justfile_directory()}}/harper-desktop/scripts/actool-shim:$PATH"
   pnpm tauri build -b app,dmg --target aarch64-apple-darwin
 
 # Build Harper Desktop macOS bundles without updater artifacts (Apple Silicon only in this fork).
@@ -249,7 +255,11 @@ build-desktop-macos-unsigned: build-harperjs build-lint-framework build-componen
 
   cd "{{justfile_directory()}}/harper-desktop"
   pnpm install
-  pnpm tauri build -b app,dmg --config '{"bundle":{"createUpdaterArtifacts":false}}' --target aarch64-apple-darwin
+  # Fork: run `actool` with stdin open so it can compile `icons/icon.icon` (see the script).
+  export PATH="{{justfile_directory()}}/harper-desktop/scripts/actool-shim:$PATH"
+  # Fork: sign ad hoc (`-`) so the bundle's signature covers Info.plist and resources and
+  # `codesign --verify` passes. Hardened runtime is only needed for notarization.
+  pnpm tauri build -b app,dmg --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-","hardenedRuntime":false}}}' --target aarch64-apple-darwin
 
 # Build the Harper Obsidian plugin.
 build-obsidian: build-harperjs

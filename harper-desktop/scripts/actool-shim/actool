@@ -1,0 +1,13 @@
+#!/bin/sh
+# Added in this fork (taehee-pd/harperSwift).
+#
+# The macOS build recipes in the root `justfile` put this directory first on PATH, so the Tauri
+# bundler runs this script when it compiles `icons/icon.icon` into `Assets.car`.
+#
+# The Tauri CLI runs inside Node, and Node marks its stdin close-on-exec. The bundler starts
+# `actool` without replacing stdin, so `actool` starts with stdin closed. Xcode's `actool` then
+# fails on Icon Composer documents with "Bad file descriptor" and "Failed to create a catalog from
+# the Icon Studio document". This script gives it `/dev/null` as stdin instead.
+#
+# Remove it once a Tauri CLI release includes https://github.com/tauri-apps/tauri/pull/15991.
+exec /usr/bin/xcrun actool "$@" </dev/null
