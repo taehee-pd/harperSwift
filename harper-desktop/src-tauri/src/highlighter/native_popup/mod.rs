@@ -14,44 +14,54 @@ use action::NativeAction;
 use mouse::{PressCounter, Presses};
 use payload::{AnchorRect, PopupContent, PopupPayload};
 
+use harper_core::linting::Lint;
+
 use super::render_state::{HitTarget, RenderState};
 use crate::rect::ActionableLint;
 
 /// What the Swift panel currently displays.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Keeps the inputs of the popup content rather than the content itself: comparing them every
+/// frame allocates nothing, while rebuilding the content would.
+#[derive(Debug, PartialEq)]
 struct ShownPopup {
     /// Changes whenever the content changes, so actions sent for older content are dropped.
     id: u64,
     index: usize,
     source_text: String,
-    content: PopupContent,
+    lint: Lint,
+    rule_name: String,
     anchor: AnchorRect,
 }
 
 impl ShownPopup {
-    fn new(id: u64, index: usize, lint: &ActionableLint, content: PopupContent) -> Self {
+    fn new(id: u64, index: usize, lint: &ActionableLint) -> Self {
         Self {
             id,
             index,
             source_text: lint.source_text.clone(),
-            content,
+            lint: lint.lint.clone(),
+            rule_name: lint.rule_name.clone(),
             anchor: lint.rect.into(),
         }
     }
 
-    fn payload(&self) -> PopupPayload<'_> {
+    fn payload<'a>(&self, content: &'a PopupContent) -> PopupPayload<'a> {
         PopupPayload {
             id: self.id,
-            content: &self.content,
+            content,
             anchor: self.anchor,
         }
     }
 
+    /// Whether `lint` would produce the content this popup shows, given the same source text.
+    fn same_content(&self, lint: &ActionableLint) -> bool {
+        lint.lint == self.lint && lint.rule_name == self.rule_name
+    }
+
     /// Whether `lint` at `index` is still the lint this popup describes.
     fn describes(&self, index: usize, lint: &ActionableLint) -> bool {
-        index == self.index
-            && lint.source_text == self.source_text
-            && PopupContent::new(lint) == self.content
+        index == self.index && lint.source_text == self.source_text && self.same_content(lint)
     }
 }
 
@@ -62,8 +72,8 @@ enum Step {
     Hide,
     /// The text under the popup changed, so the user kept typing: close the popup for good.
     CloseAndHide,
-    Show(ShownPopup),
-    Update(ShownPopup),
+    Show(ShownPopup, PopupContent),
+    Update(ShownPopup, PopupContent),
 }
 
 /// Compares what Swift shows with the lint that should be shown.
@@ -80,24 +90,26 @@ fn next_step(
     };
 
     let Some(shown) = shown.filter(|shown| shown.index == index) else {
-        return Step::Show(ShownPopup::new(
-            next_id,
-            index,
-            lint,
+        return Step::Show(
+            ShownPopup::new(next_id, index, lint),
             PopupContent::new(lint),
-        ));
+        );
     };
 
     if lint.source_text != shown.source_text {
         return Step::CloseAndHide;
     }
 
-    let content = PopupContent::new(lint);
-
-    if content != shown.content {
-        Step::Update(ShownPopup::new(next_id, index, lint, content))
+    if !shown.same_content(lint) {
+        Step::Update(
+            ShownPopup::new(next_id, index, lint),
+            PopupContent::new(lint),
+        )
     } else if AnchorRect::from(lint.rect) != shown.anchor {
-        Step::Update(ShownPopup::new(shown.id, index, lint, content))
+        Step::Update(
+            ShownPopup::new(shown.id, index, lint),
+            PopupContent::new(lint),
+        )
     } else {
         Step::Nothing
     }
@@ -167,12 +179,12 @@ impl NativePopup {
                 render_state.close_popup();
                 self.hide();
             }
-            Step::Show(shown) => {
-                ffi::show(&shown.payload());
+            Step::Show(shown, content) => {
+                ffi::show(&shown.payload(&content));
                 self.remember(shown);
             }
-            Step::Update(shown) => {
-                ffi::update(&shown.payload());
+            Step::Update(shown, content) => {
+                ffi::update(&shown.payload(&content));
                 self.remember(shown);
             }
         }
@@ -243,7 +255,15 @@ mod tests {
     use crate::rect::Rect;
 
     fn shown(id: u64, index: usize, lint: &ActionableLint) -> ShownPopup {
-        ShownPopup::new(id, index, lint, PopupContent::new(lint))
+        ShownPopup::new(id, index, lint)
+    }
+
+    fn show(id: u64, index: usize, lint: &ActionableLint) -> Step {
+        Step::Show(shown(id, index, lint), PopupContent::new(lint))
+    }
+
+    fn update(id: u64, index: usize, lint: &ActionableLint) -> Step {
+        Step::Update(shown(id, index, lint), PopupContent::new(lint))
     }
 
     #[test]
@@ -255,10 +275,7 @@ mod tests {
     fn shows_a_newly_highlighted_lint_with_a_new_id() {
         let lint = spelling_lint();
 
-        assert_eq!(
-            next_step(None, Some((0, &lint)), 1),
-            Step::Show(shown(1, 0, &lint))
-        );
+        assert_eq!(next_step(None, Some((0, &lint)), 1), show(1, 0, &lint));
     }
 
     #[test]
@@ -268,7 +285,7 @@ mod tests {
 
         assert_eq!(
             next_step(Some(&current), Some((2, &lint)), 2),
-            Step::Show(shown(2, 2, &lint))
+            show(2, 2, &lint)
         );
     }
 
@@ -298,7 +315,7 @@ mod tests {
 
         assert_eq!(
             next_step(Some(&current), Some((0, &moved)), 2),
-            Step::Update(shown(1, 0, &moved))
+            update(1, 0, &moved)
         );
     }
 
@@ -311,7 +328,7 @@ mod tests {
 
         assert_eq!(
             next_step(Some(&current), Some((0, &changed)), 2),
-            Step::Update(shown(2, 0, &changed))
+            update(2, 0, &changed)
         );
     }
 

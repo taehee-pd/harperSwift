@@ -1,3 +1,5 @@
+# Modified in this fork (taehee-pd/harperSwift): macOS desktop bundles target Apple Silicon only.
+
 default:
   @just --list
 
@@ -231,23 +233,23 @@ build-desktop-macos-arm64: build-harperjs build-lint-framework build-components 
   pnpm install
   pnpm tauri build -b app,dmg --target aarch64-apple-darwin
 
-# Build Harper Desktop macOS bundles.
+# Build Harper Desktop macOS bundles (Apple Silicon only in this fork).
 build-desktop-macos: build-harperjs build-lint-framework build-components build-harper-editor
   #!/usr/bin/env bash
   set -eo pipefail
 
   cd "{{justfile_directory()}}/harper-desktop"
   pnpm install
-  pnpm tauri build -b app,dmg --target universal-apple-darwin
+  pnpm tauri build -b app,dmg --target aarch64-apple-darwin
 
-# Build Harper Desktop macOS bundles without updater artifacts.
+# Build Harper Desktop macOS bundles without updater artifacts (Apple Silicon only in this fork).
 build-desktop-macos-unsigned: build-harperjs build-lint-framework build-components build-harper-editor
   #!/usr/bin/env bash
   set -eo pipefail
 
   cd "{{justfile_directory()}}/harper-desktop"
   pnpm install
-  pnpm tauri build -b app,dmg --config '{"bundle":{"createUpdaterArtifacts":false}}' --target universal-apple-darwin
+  pnpm tauri build -b app,dmg --config '{"bundle":{"createUpdaterArtifacts":false}}' --target aarch64-apple-darwin
 
 # Build the Harper Obsidian plugin.
 build-obsidian: build-harperjs

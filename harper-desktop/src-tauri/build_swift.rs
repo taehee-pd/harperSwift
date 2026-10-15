@@ -1,7 +1,8 @@
 //! Added in this fork (taehee-pd/harperSwift).
 //!
 //! Builds the SwiftUI suggestion popup in `../macos-popup` with SwiftPM and links it into the
-//! highlighter. Only runs when targeting macOS; needs the Xcode command line tools.
+//! highlighter. Only runs when targeting macOS; needs the Xcode command line tools. This fork
+//! targets Apple Silicon Macs only.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ const LIBRARY: &str = "HarperPopup";
 /// Must match `platforms` in `Package.swift` and `bundle.macOS.minimumSystemVersion` in
 /// `tauri.conf.json`.
 const DEPLOYMENT_TARGET: &str = "13.0";
+const TRIPLE: &str = "arm64-apple-macosx13.0";
 
 pub fn build() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
@@ -21,12 +23,13 @@ pub fn build() {
     println!("cargo:rerun-if-changed={PACKAGE_DIR}/Package.swift");
     println!("cargo:rerun-if-changed={PACKAGE_DIR}/Sources");
 
-    let arch = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
-        Ok("aarch64") => "arm64".to_owned(),
-        Ok(arch) => arch.to_owned(),
-        Err(error) => panic!("CARGO_CFG_TARGET_ARCH is not set: {error}"),
-    };
-    let triple = format!("{arch}-apple-macosx{DEPLOYMENT_TARGET}");
+    if env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("aarch64") {
+        panic!(
+            "This fork of Harper Desktop supports Apple Silicon only. Build for \
+             aarch64-apple-darwin, for example with `just build-desktop-macos`."
+        );
+    }
+
     let configuration = match env::var("PROFILE").as_deref() {
         Ok("release") => "release",
         _ => "debug",
@@ -41,7 +44,7 @@ pub fn build() {
         "--scratch-path",
         path_str(&scratch_path),
         "--triple",
-        &triple,
+        TRIPLE,
         "--configuration",
         configuration,
         "--product",
@@ -60,7 +63,7 @@ pub fn build() {
     // The Swift objects reference the Swift runtime and compatibility libraries by name; tell the
     // linker where to find them (toolchain and SDK) and where to load them from at run time.
     let target_info: serde_json::Value =
-        serde_json::from_str(&run("swift", &["-print-target-info", "-target", &triple]))
+        serde_json::from_str(&run("swift", &["-print-target-info", "-target", TRIPLE]))
             .expect("unexpected `swift -print-target-info` output");
 
     for path in target_info["paths"]["runtimeLibraryPaths"]

@@ -2,9 +2,11 @@
 
 Added in this fork (taehee-pd/harperSwift). A SwiftUI replacement for the egui suggestion popup in the Harper Desktop highlighter, used on macOS only. Windows and Linux keep the egui popup.
 
+This fork builds Harper Desktop for Apple Silicon Macs only. Intel and universal macOS builds stop with an error in `build_swift.rs`, and `just build-desktop-macos` builds for `aarch64-apple-darwin`.
+
 ## Build
 
-Nothing to do by hand. `src-tauri/build.rs` calls `build_swift.rs`, which runs `swift build` for the Cargo target architecture (macOS 13 deployment target) and links the static library `libHarperPopup.a` plus the Swift runtime. `pnpm tauri dev`, `pnpm tauri build` and plain `cargo build` all go through it. Requirements: Xcode or the Xcode command line tools.
+Nothing to do by hand. `src-tauri/build.rs` calls `build_swift.rs`, which runs `swift build` for `arm64-apple-macosx13.0` and links the static library `libHarperPopup.a` plus the Swift runtime. `pnpm tauri dev`, `pnpm tauri build` and plain `cargo build` all go through it. Requirements: Xcode or the Xcode command line tools.
 
 ## Test
 
