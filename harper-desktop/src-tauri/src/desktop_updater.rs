@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): reads the latest version from this fork's
+// update manifest instead of writewithharper.com.
+
 //! Desktop updates belong to the main process, not to any particular WebView.
 
 use crate::config::Config;
@@ -11,7 +14,9 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::Mutex;
 
-const LATEST_VERSION_URL: &str = "https://writewithharper.com/latestversion";
+/// This fork's update manifest, published with each GitHub release (see `tauri.conf.json`).
+const LATEST_VERSION_URL: &str =
+    "https://github.com/taehee-pd/harperSwift/releases/latest/download/latest.json";
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -81,7 +86,7 @@ impl DesktopUpdater {
             .build()
             .map_err(|error| error.to_string())?
             .get(LATEST_VERSION_URL)
-            .header(reqwest::header::ACCEPT, "text/plain")
+            .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
             .and_then(reqwest::Response::error_for_status)
@@ -90,7 +95,7 @@ impl DesktopUpdater {
             .text()
             .await
             .map_err(|error| format!("Unable to get latest version: {error}"))?;
-        Ok(normalize_version(&text))
+        latest_version_from_manifest(&text)
     }
 
     /// Check and install an update. Only automatic requests can be skipped (returning `None`).
@@ -215,6 +220,14 @@ async fn check_and_install<R: Runtime>(
     })
 }
 
+/// The `version` of an updater manifest (`latest.json`).
+fn latest_version_from_manifest(manifest: &str) -> Result<String, String> {
+    serde_json::from_str::<serde_json::Value>(manifest)
+        .ok()
+        .and_then(|manifest| manifest["version"].as_str().map(normalize_version))
+        .ok_or_else(|| "Unable to get latest version: unexpected update manifest".to_owned())
+}
+
 fn normalize_version(version: &str) -> String {
     let version = version.trim();
     version
@@ -231,6 +244,15 @@ fn should_check_for_update(auto_update: bool, last_check: Option<u64>, now: u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_version_from_the_update_manifest() {
+        let manifest = r#"{"version": "v1.0.0", "platforms": {}}"#;
+
+        assert_eq!(latest_version_from_manifest(manifest).unwrap(), "1.0.0");
+        assert!(latest_version_from_manifest("not json").is_err());
+        assert!(latest_version_from_manifest("{}").is_err());
+    }
 
     fn installed_result() -> UpdateResult {
         UpdateResult {
