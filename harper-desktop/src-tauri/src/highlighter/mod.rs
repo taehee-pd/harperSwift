@@ -1,4 +1,8 @@
+// Modified in this fork (taehee-pd/harperSwift): registers the native macOS popup module.
+
 mod error;
+#[cfg(target_os = "macos")]
+mod native_popup;
 mod render_state;
 mod window;
 mod window_manager;

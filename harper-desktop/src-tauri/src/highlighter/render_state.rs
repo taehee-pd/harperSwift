@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): exposes popup state and actions to the native
+// macOS popup (`native_popup/`) and skips the egui card on macOS.
+
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use harper_core::{
     Document,
@@ -118,6 +121,13 @@ impl RenderState {
     /// disappeared after the latest accessibility read.
     pub fn set_highlighted_lint(&mut self, highlighted_lint: Option<usize>) {
         self.highlighted_lint = highlighted_lint.filter(|index| *index < self.lints().len());
+    }
+
+    /// Returns the lint whose popup is open, for the native macOS popup.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(super) fn highlighted(&self) -> Option<(usize, &ActionableLint)> {
+        self.highlighted_lint
+            .and_then(|index| self.lints().get(index).map(|lint| (index, lint)))
     }
 
     /// Centralizes the close behavior so the popup close button only has to clear the selected lint.
