@@ -98,6 +98,14 @@ final class PopupController {
         data = nil
     }
 
+    /// Whether a point in Accessibility coordinates (top-left origin) falls on the visible popup.
+    func contains(topLeftPoint point: CGPoint) -> Bool {
+        guard panel.isVisible else { return false }
+
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        return panel.frame.contains(PopupGeometry.appKitPoint(fromTopLeft: point, primaryScreenHeight: primaryHeight))
+    }
+
     private func render(_ data: PopupData) {
         self.data = data
         hostingView.rootView = PopupView(data: data) { [weak self] action in

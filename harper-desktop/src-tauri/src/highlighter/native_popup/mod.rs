@@ -2,17 +2,19 @@
 //!
 //! `RenderState` stays the owner of popup state (`highlighted_lint`). Every frame,
 //! [`NativePopup::sync`] feeds actions reported by Swift into `RenderState::apply_card_action`
-//! (the same handler the egui card uses), then mirrors the highlighted lint into the Swift panel
-//! in `harper-desktop/macos-popup`.
+//! (the same handler the egui card uses), opens or closes the popup on clicks, then mirrors the
+//! highlighted lint into the Swift panel in `harper-desktop/macos-popup`.
 
 mod action;
 mod ffi;
+mod mouse;
 mod payload;
 
 use action::NativeAction;
+use mouse::{PressCounter, Presses};
 use payload::{AnchorRect, PopupContent, PopupPayload};
 
-use super::render_state::RenderState;
+use super::render_state::{HitTarget, RenderState};
 use crate::rect::ActionableLint;
 
 /// What the Swift panel currently displays.
@@ -101,9 +103,29 @@ fn next_step(
     }
 }
 
+/// What a mouse press means for the popup.
+#[derive(Debug, PartialEq, Eq)]
+enum ClickOutcome {
+    /// The press landed on the popup itself; its buttons handle it.
+    Ignore,
+    Select(usize),
+    Close,
+}
+
+/// Left-clicking an underline opens its popup; any other press outside the popup closes it.
+/// Right-clicks never open the popup, so they do not compete with the app's context menu.
+fn click_outcome(presses: Presses, on_popup: bool, target: HitTarget) -> ClickOutcome {
+    match (on_popup, presses.left, target) {
+        (true, _, _) => ClickOutcome::Ignore,
+        (false, true, HitTarget::Lint(index)) => ClickOutcome::Select(index),
+        (false, _, _) => ClickOutcome::Close,
+    }
+}
+
 pub struct NativePopup {
     shown: Option<ShownPopup>,
     last_id: u64,
+    presses: PressCounter,
 }
 
 impl NativePopup {
@@ -113,11 +135,19 @@ impl NativePopup {
         Self {
             shown: None,
             last_id: 0,
+            presses: PressCounter::new(),
         }
     }
 
-    pub fn sync(&mut self, render_state: &mut RenderState) {
+    /// `cursor_position` returns the pointer in Accessibility coordinates; it is only called when
+    /// a mouse button was pressed since the last frame.
+    pub fn sync(
+        &mut self,
+        render_state: &mut RenderState,
+        cursor_position: impl FnOnce() -> Option<egui::Pos2>,
+    ) {
         self.apply_actions(render_state);
+        self.handle_clicks(render_state, cursor_position);
 
         match next_step(
             self.shown.as_ref(),
@@ -158,6 +188,32 @@ impl NativePopup {
             if let Some(card_action) = card_action {
                 render_state.apply_card_action(shown.index, card_action);
             }
+        }
+    }
+
+    fn handle_clicks(
+        &mut self,
+        render_state: &mut RenderState,
+        cursor_position: impl FnOnce() -> Option<egui::Pos2>,
+    ) {
+        let presses = self.presses.take();
+
+        if !presses.any() {
+            return;
+        }
+
+        let Some(cursor) = cursor_position() else {
+            return;
+        };
+
+        match click_outcome(
+            presses,
+            ffi::contains_point(cursor),
+            render_state.hit_target_at_pos(cursor),
+        ) {
+            ClickOutcome::Ignore => {}
+            ClickOutcome::Select(index) => render_state.set_highlighted_lint(Some(index)),
+            ClickOutcome::Close => render_state.close_popup(),
         }
     }
 
@@ -261,6 +317,55 @@ mod tests {
         assert_eq!(
             next_step(Some(&current), Some((0, &typed)), 2),
             Step::CloseAndHide
+        );
+    }
+
+    const LEFT: Presses = Presses {
+        left: true,
+        right: false,
+    };
+    const RIGHT: Presses = Presses {
+        left: false,
+        right: true,
+    };
+
+    #[test]
+    fn left_click_on_an_underline_selects_it() {
+        assert_eq!(
+            click_outcome(LEFT, false, HitTarget::Lint(3)),
+            ClickOutcome::Select(3)
+        );
+    }
+
+    #[test]
+    fn clicks_elsewhere_close_the_popup() {
+        assert_eq!(
+            click_outcome(LEFT, false, HitTarget::None),
+            ClickOutcome::Close
+        );
+        assert_eq!(
+            click_outcome(RIGHT, false, HitTarget::None),
+            ClickOutcome::Close
+        );
+    }
+
+    #[test]
+    fn right_click_on_an_underline_closes_instead_of_opening() {
+        assert_eq!(
+            click_outcome(RIGHT, false, HitTarget::Lint(3)),
+            ClickOutcome::Close
+        );
+    }
+
+    #[test]
+    fn clicks_on_the_popup_are_left_to_its_buttons() {
+        assert_eq!(
+            click_outcome(LEFT, true, HitTarget::Lint(3)),
+            ClickOutcome::Ignore
+        );
+        assert_eq!(
+            click_outcome(RIGHT, true, HitTarget::None),
+            ClickOutcome::Ignore
         );
     }
 

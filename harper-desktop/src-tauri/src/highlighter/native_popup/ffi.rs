@@ -13,6 +13,7 @@ unsafe extern "C" {
     fn harper_popup_show(json: *const c_char);
     fn harper_popup_update(json: *const c_char);
     fn harper_popup_hide();
+    fn harper_popup_contains_point(x: f64, y: f64) -> bool;
 }
 
 /// An action reported by Swift, before it is decoded by [`super::action::NativeAction`].
@@ -62,6 +63,11 @@ pub fn update(payload: &impl Serialize) {
 
 pub fn hide() {
     unsafe { harper_popup_hide() }
+}
+
+/// Whether a point in Accessibility coordinates (global, top-left origin) is on the visible popup.
+pub fn contains_point(point: egui::Pos2) -> bool {
+    unsafe { harper_popup_contains_point(point.x.into(), point.y.into()) }
 }
 
 fn with_json(payload: &impl Serialize, send: impl FnOnce(*const c_char)) {

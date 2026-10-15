@@ -29,3 +29,8 @@ public func harperPopupUpdate(_ json: UnsafePointer<CChar>?) {
 public func harperPopupHide() {
     MainActor.assumeIsolated { PopupController.shared.hide() }
 }
+
+@_cdecl("harper_popup_contains_point")
+public func harperPopupContainsPoint(_ x: Double, _ y: Double) -> Bool {
+    MainActor.assumeIsolated { PopupController.shared.contains(topLeftPoint: CGPoint(x: x, y: y)) }
+}

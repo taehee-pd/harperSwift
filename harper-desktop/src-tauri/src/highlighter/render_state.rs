@@ -137,7 +137,8 @@ impl RenderState {
 
     /// Checks if a given position touches a hit target.
     pub fn hit_target_at_pos(&self, pos: egui::Pos2) -> HitTarget {
-        if self.popup_rect().is_some_and(|rect| rect.contains(pos)) {
+        // On macOS the popup is a native panel that receives its own clicks.
+        if !cfg!(target_os = "macos") && self.popup_rect().is_some_and(|rect| rect.contains(pos)) {
             return HitTarget::Popup;
         }
 
@@ -164,7 +165,9 @@ impl RenderState {
             draw_highlight(ui, &positioned_lint.rect, &positioned_lint.lint);
         }
 
-        if let Some(index) = self.highlighted_lint
+        // On macOS the popup is drawn by the native SwiftUI panel (`native_popup/`).
+        if !cfg!(target_os = "macos")
+            && let Some(index) = self.highlighted_lint
             && let Some(positioned_lint) = self.lints().get(index)
         {
             let rect = positioned_lint.rect;
