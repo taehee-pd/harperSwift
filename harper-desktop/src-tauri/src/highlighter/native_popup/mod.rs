@@ -103,6 +103,13 @@ fn next_step(
     }
 }
 
+/// Whether the lint's span lies inside its source text. The shared action handlers index the text
+/// with the span and would panic otherwise, which can happen while lints are briefly cached for
+/// older, longer text during typing.
+fn span_fits(lint: &ActionableLint) -> bool {
+    lint.lint.span.end <= lint.source_text.chars().count()
+}
+
 /// What a mouse press means for the popup.
 #[derive(Debug, PartialEq, Eq)]
 enum ClickOutcome {
@@ -183,6 +190,7 @@ impl NativePopup {
             let card_action = render_state
                 .highlighted()
                 .filter(|(index, lint)| shown.describes(*index, lint))
+                .filter(|(_, lint)| action == NativeAction::Close || span_fits(lint))
                 .and_then(|(_, lint)| action.card_action(&lint.lint));
 
             if let Some(card_action) = card_action {
@@ -367,6 +375,15 @@ mod tests {
             click_outcome(RIGHT, true, HitTarget::None),
             ClickOutcome::Ignore
         );
+    }
+
+    #[test]
+    fn only_acts_on_lints_whose_span_fits_the_text() {
+        let mut lint = spelling_lint();
+        assert!(span_fits(&lint));
+
+        lint.source_text = "Th".to_owned();
+        assert!(!span_fits(&lint));
     }
 
     #[test]
