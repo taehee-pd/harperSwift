@@ -1,3 +1,5 @@
+// Modified in this fork (taehee-pd/harperSwift): adds the Clarity settings calls (macOS only).
+
 import { invoke } from '@tauri-apps/api/core';
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import type {
@@ -20,6 +22,15 @@ const DialectValue = {
 } as const;
 
 const ACCESSIBILITY_PERMISSION_TIMEOUT_MS = 6_000;
+
+/** Clarity suggestions from Apple Intelligence (macOS only; `clarity/settings.rs`). */
+export type ClaritySettings = {
+	enabled: boolean;
+	/** Whether the model can run now. It may still be paused to save power. */
+	available: boolean;
+	/** The status in plain words, such as "Paused: Low Power Mode is on". */
+	status: string;
+};
 
 let configLinterPromise: Promise<LocalLinterType> | null = null;
 
@@ -91,6 +102,16 @@ export class Client {
 
 	static async setDebounceMs(debounceMs: number): Promise<void> {
 		await invoke('set_debounce_ms', { debounceMs });
+	}
+
+	/** macOS only. */
+	static async getClaritySettings(): Promise<ClaritySettings> {
+		return await invoke<ClaritySettings>('get_clarity_settings');
+	}
+
+	/** macOS only. */
+	static async setClarityEnabled(enabled: boolean): Promise<void> {
+		await invoke('set_clarity_enabled', { enabled });
 	}
 
 	/** Check if the app is configured to auto update. */

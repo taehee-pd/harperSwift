@@ -1,0 +1,17 @@
+{
+	"id": 7,
+	"kind_name": "Spelling",
+	"kind_color": { "r": 238, "g": 66, "b": 102 },
+	"rule_name": "SpellCheck",
+	"message": "Did you mean `This`?",
+	"suggestions": [
+		{ "kind": "replace", "label": "This", "description": "Replace “Ths” with “This”" },
+		{ "kind": "insert", "label": "e", "description": "Insert “e” after “Ths”" },
+		{ "kind": "remove", "label": "Remove", "description": "Remove “Ths”" }
+	],
+	"flagged_text": "Ths",
+	"can_add_to_dictionary": true,
+	"source": "harper",
+	"clarity": null,
+	"anchor": { "x": 120.0, "y": 340.5, "width": 24.0, "height": 17.0 }
+}

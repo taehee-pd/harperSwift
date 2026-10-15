@@ -1,3 +1,8 @@
+// Modified in this fork (taehee-pd/harperSwift): exposes popup state and actions to the native
+// macOS popup (`native_popup/`), compiles the egui card out on macOS, draws Clarity lints with
+// a dashed underline, and records Clarity dismissals.
+
+#[cfg(not(target_os = "macos"))]
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use harper_core::{
     Document,
@@ -13,7 +18,9 @@ use crate::{
 const CARD_WIDTH: f32 = 440.0;
 const CARD_HEIGHT: f32 = 178.0;
 const CARD_OFFSET_Y: f32 = 8.0;
+#[cfg(not(target_os = "macos"))]
 const HEADER_HEIGHT: f32 = 46.0;
+#[cfg(not(target_os = "macos"))]
 const FOOTER_HEIGHT: f32 = 43.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +30,7 @@ pub enum HitTarget {
     None,
 }
 
-enum LintCardAction {
+pub(super) enum LintCardAction {
     Close,
     ApplySuggestion(Suggestion),
     IgnoreLint,
@@ -31,6 +38,7 @@ enum LintCardAction {
     DisableRule,
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Copy)]
 struct PopupStyle {
     color: egui::Color32,
@@ -38,6 +46,7 @@ struct PopupStyle {
     foreground: egui::Color32,
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Copy)]
 enum Glyph {
     Close,
@@ -62,6 +71,7 @@ pub struct RenderState {
 
     /// Cache for markdown-rendered lint messages so popup redraws do not repeatedly rebuild markdown
     /// resources from scratch.
+    #[cfg(not(target_os = "macos"))]
     markdown_cache: CommonMarkCache,
 
     /// Called when the user dismisses a lint so app-level ignored-lint state can be updated.
@@ -86,6 +96,7 @@ impl RenderState {
         let mut state = Self {
             last_lints: None,
             highlighted_lint: None,
+            #[cfg(not(target_os = "macos"))]
             markdown_cache: CommonMarkCache::default(),
             ignore_lint,
             add_to_dictionary,
@@ -120,6 +131,13 @@ impl RenderState {
         self.highlighted_lint = highlighted_lint.filter(|index| *index < self.lints().len());
     }
 
+    /// Returns the lint whose popup is open, for the native macOS popup.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(super) fn highlighted(&self) -> Option<(usize, &ActionableLint)> {
+        self.highlighted_lint
+            .and_then(|index| self.lints().get(index).map(|lint| (index, lint)))
+    }
+
     /// Centralizes the close behavior so the popup close button only has to clear the selected lint.
     pub fn close_popup(&mut self) {
         self.highlighted_lint = None;
@@ -127,7 +145,8 @@ impl RenderState {
 
     /// Checks if a given position touches a hit target.
     pub fn hit_target_at_pos(&self, pos: egui::Pos2) -> HitTarget {
-        if self.popup_rect().is_some_and(|rect| rect.contains(pos)) {
+        // On macOS the popup is a native panel that receives its own clicks.
+        if !cfg!(target_os = "macos") && self.popup_rect().is_some_and(|rect| rect.contains(pos)) {
             return HitTarget::Popup;
         }
 
@@ -151,9 +170,17 @@ impl RenderState {
     /// regions and clickable regions do not drift apart.
     pub fn render(&mut self, ui: &mut egui::Ui) {
         for positioned_lint in self.lints() {
+            #[cfg(target_os = "macos")]
+            if crate::clarity::is_clarity_rule(&positioned_lint.rule_name) {
+                super::clarity_underline::draw(ui, rect_bounds(&positioned_lint.rect));
+                continue;
+            }
+
             draw_highlight(ui, &positioned_lint.rect, &positioned_lint.lint);
         }
 
+        // On macOS the popup is drawn by the native SwiftUI panel (`native_popup/`).
+        #[cfg(not(target_os = "macos"))]
         if let Some(index) = self.highlighted_lint
             && let Some(positioned_lint) = self.lints().get(index)
         {
@@ -161,62 +188,74 @@ impl RenderState {
             let lint = positioned_lint.lint.clone();
             let source_text = positioned_lint.source_text.clone();
 
-            match render_lint_card(ui, &rect, &lint, &source_text, &mut self.markdown_cache) {
-                Some(LintCardAction::Close) => self.close_popup(),
-                Some(LintCardAction::ApplySuggestion(suggestion)) => {
-                    if let Some(actionable_lint) = self
-                        .last_lints
-                        .as_mut()
-                        .and_then(|lints| lints.get_mut(index))
-                    {
-                        actionable_lint.apply_suggestion(suggestion);
-                    }
+            if let Some(action) =
+                render_lint_card(ui, &rect, &lint, &source_text, &mut self.markdown_cache)
+            {
+                self.apply_card_action(index, action);
+            }
+        }
+    }
 
-                    self.close_popup();
-                }
-                Some(LintCardAction::IgnoreLint) => {
-                    if let Some((lint, source_text)) =
-                        self.lints().get(index).map(|actionable_lint| {
-                            (
-                                actionable_lint.lint.clone(),
-                                actionable_lint.source_text.clone(),
-                            )
-                        })
-                    {
-                        let document = Document::new_markdown_default_curated(&source_text);
-                        (self.ignore_lint)(&lint, &document);
-                    }
+    /// Records `lint` in `document` as ignored, through the same callback as the Ignore button.
+    /// Clarity dismissals pass the lint's sentence as the document.
+    #[cfg(target_os = "macos")]
+    pub(super) fn ignore_lint_with(&mut self, lint: &Lint, document: &Document) {
+        (self.ignore_lint)(lint, document);
+    }
 
-                    self.close_popup();
+    /// Runs a popup action against the lint at `index`. Shared by the egui card and the native
+    /// macOS popup so both behave the same.
+    pub(super) fn apply_card_action(&mut self, index: usize, action: LintCardAction) {
+        match action {
+            LintCardAction::Close => self.close_popup(),
+            LintCardAction::ApplySuggestion(suggestion) => {
+                if let Some(actionable_lint) = self
+                    .last_lints
+                    .as_mut()
+                    .and_then(|lints| lints.get_mut(index))
+                {
+                    actionable_lint.apply_suggestion(suggestion);
                 }
-                Some(LintCardAction::AddToDictionary) => {
-                    if let Some((lint, source_text)) =
-                        self.lints().get(index).map(|actionable_lint| {
-                            (
-                                actionable_lint.lint.clone(),
-                                actionable_lint.source_text.clone(),
-                            )
-                        })
-                    {
-                        let document = Document::new_markdown_default_curated(&source_text);
-                        let word = lint.get_str(document.get_source());
-                        (self.add_to_dictionary)(&word);
-                    }
 
-                    self.close_popup();
+                self.close_popup();
+            }
+            LintCardAction::IgnoreLint => {
+                if let Some((lint, source_text)) = self.lints().get(index).map(|actionable_lint| {
+                    (
+                        actionable_lint.lint.clone(),
+                        actionable_lint.source_text.clone(),
+                    )
+                }) {
+                    let document = Document::new_markdown_default_curated(&source_text);
+                    (self.ignore_lint)(&lint, &document);
                 }
-                Some(LintCardAction::DisableRule) => {
-                    if let Some(rule_name) = self
-                        .lints()
-                        .get(index)
-                        .map(|actionable_lint| actionable_lint.rule_name.clone())
-                    {
-                        (self.disable_rule)(&rule_name);
-                    }
 
-                    self.close_popup();
+                self.close_popup();
+            }
+            LintCardAction::AddToDictionary => {
+                if let Some((lint, source_text)) = self.lints().get(index).map(|actionable_lint| {
+                    (
+                        actionable_lint.lint.clone(),
+                        actionable_lint.source_text.clone(),
+                    )
+                }) {
+                    let document = Document::new_markdown_default_curated(&source_text);
+                    let word = lint.get_str(document.get_source());
+                    (self.add_to_dictionary)(&word);
                 }
-                None => {}
+
+                self.close_popup();
+            }
+            LintCardAction::DisableRule => {
+                if let Some(rule_name) = self
+                    .lints()
+                    .get(index)
+                    .map(|actionable_lint| actionable_lint.rule_name.clone())
+                {
+                    (self.disable_rule)(&rule_name);
+                }
+
+                self.close_popup();
             }
         }
     }
@@ -243,6 +282,7 @@ fn draw_highlight(ui: &mut egui::Ui, rect: &Rect, lint: &Lint) {
 }
 
 /// Renders the suggestion popup and returns whether the explicit close control was clicked.
+#[cfg(not(target_os = "macos"))]
 fn render_lint_card(
     ui: &mut egui::Ui,
     rect: &Rect,
@@ -287,6 +327,7 @@ fn render_lint_card(
 }
 
 /// Renders the top bar from the prototype, including no-op utility icons and the real close action.
+#[cfg(not(target_os = "macos"))]
 fn render_popover_header(ui: &mut egui::Ui, lint: &Lint, action: &mut Option<LintCardAction>) {
     let style = popup_style_for_lint_kind(lint.lint_kind);
 
@@ -322,6 +363,7 @@ fn render_popover_header(ui: &mut egui::Ui, lint: &Lint, action: &mut Option<Lin
 }
 
 /// Renders the markdown explanation and horizontal suggestion chip row from the prototype body.
+#[cfg(not(target_os = "macos"))]
 fn render_popover_body(
     ui: &mut egui::Ui,
     lint: &Lint,
@@ -355,6 +397,7 @@ fn render_popover_body(
 
 /// Renders the footer controls as visual stubs so the popup matches the target component before those
 /// actions have real behavior.
+#[cfg(not(target_os = "macos"))]
 fn render_popover_footer(
     ui: &mut egui::Ui,
     lint: &Lint,
@@ -397,6 +440,7 @@ fn render_popover_footer(
 
 /// Renders Harper's markdown-formatted lint message in the popup instead of showing raw markdown
 /// markers to the user.
+#[cfg(not(target_os = "macos"))]
 fn render_lint_message(ui: &mut egui::Ui, cache: &mut CommonMarkCache, message: &str) {
     ui.scope(|ui| {
         ui.visuals_mut().code_bg_color = hex(0xf3, 0xf4, 0xf6);
@@ -411,6 +455,7 @@ fn render_lint_message(ui: &mut egui::Ui, cache: &mut CommonMarkCache, message: 
 
 /// Keeps the lint type visually attached to the popup without duplicating lint-kind formatting in
 /// the window manager.
+#[cfg(not(target_os = "macos"))]
 fn lint_kind_badge(ui: &mut egui::Ui, lint: &Lint, style: PopupStyle) {
     egui::Frame::new()
         .fill(style.background)
@@ -434,6 +479,7 @@ fn lint_kind_badge(ui: &mut egui::Ui, lint: &Lint, style: PopupStyle) {
 }
 
 /// Renders a suggestion as a compact button so later replacement behavior can attach to one place.
+#[cfg(not(target_os = "macos"))]
 fn suggestion_option(
     ui: &mut egui::Ui,
     lint_kind: LintKind,
@@ -484,6 +530,7 @@ fn suggestion_option(
 
 /// Renders the prototype's square icon-only controls without coupling their visual treatment to any
 /// behavior beyond the response returned to the caller.
+#[cfg(not(target_os = "macos"))]
 fn icon_button(ui: &mut egui::Ui, glyph: Glyph, text: &str) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::click());
     let background = if response.hovered() {
@@ -504,6 +551,7 @@ fn icon_button(ui: &mut egui::Ui, glyph: Glyph, text: &str) -> egui::Response {
 }
 
 /// Renders footer controls as no-op buttons so future actions can be wired without changing layout.
+#[cfg(not(target_os = "macos"))]
 fn ghost_button(
     ui: &mut egui::Ui,
     glyph: Option<Glyph>,
@@ -535,6 +583,7 @@ fn ghost_button(
 }
 
 /// Applies tooltip styling that visually belongs with the suggestion popup instead of egui defaults.
+#[cfg(not(target_os = "macos"))]
 fn hover_text(response: egui::Response, hover_text: impl Into<String>) -> egui::Response {
     let hover_text = hover_text.into();
 
@@ -568,6 +617,7 @@ fn hover_text(response: egui::Response, hover_text: impl Into<String>) -> egui::
 }
 
 /// Draws the small SVG-inspired line icons from the prototype using egui painter primitives.
+#[cfg(not(target_os = "macos"))]
 fn draw_glyph(ui: &egui::Ui, rect: egui::Rect, glyph: Glyph, color: egui::Color32) {
     match glyph {
         Glyph::Close => draw_close_icon(ui, rect, color),
@@ -579,6 +629,7 @@ fn draw_glyph(ui: &egui::Ui, rect: egui::Rect, glyph: Glyph, color: egui::Color3
 
 /// Draws the close glyph separately from button behavior so icon styling can change without touching
 /// the popup's interaction contract.
+#[cfg(not(target_os = "macos"))]
 fn draw_close_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.6_f32, color);
 
@@ -588,6 +639,7 @@ fn draw_close_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
         .line_segment([rect.right_top(), rect.left_bottom()], stroke);
 }
 
+#[cfg(not(target_os = "macos"))]
 fn draw_settings_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.5_f32, color);
     let center = rect.center();
@@ -606,6 +658,7 @@ fn draw_settings_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn draw_disable_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.5_f32, color);
 
@@ -618,6 +671,7 @@ fn draw_disable_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
         .line_segment([rect.left_bottom(), rect.right_top()], stroke);
 }
 
+#[cfg(not(target_os = "macos"))]
 fn draw_plus_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.6_f32, color);
 
@@ -637,7 +691,7 @@ fn draw_plus_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     );
 }
 
-fn is_spelling_kind(lint_kind: LintKind) -> bool {
+pub(super) fn is_spelling_kind(lint_kind: LintKind) -> bool {
     match lint_kind {
         LintKind::Eggcorn | LintKind::Malapropism | LintKind::Spelling | LintKind::Typo => true,
         LintKind::Agreement
@@ -660,6 +714,7 @@ fn is_spelling_kind(lint_kind: LintKind) -> bool {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn popup_style_for_lint_kind(lint_kind: LintKind) -> PopupStyle {
     let color = lint_kind_color32(lint_kind);
 
@@ -706,13 +761,14 @@ fn popup_style_for_lint_kind(lint_kind: LintKind) -> PopupStyle {
 }
 
 /// Converts Harper suggestion variants into button text.
-fn suggestion_text(suggestion: &Suggestion) -> String {
+pub(super) fn suggestion_text(suggestion: &Suggestion) -> String {
     match suggestion {
         Suggestion::ReplaceWith(chars) | Suggestion::InsertAfter(chars) => chars.iter().collect(),
         Suggestion::Remove => "Remove".to_owned(),
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn suggestion_hover_text(suggestion: &Suggestion) -> String {
     match suggestion {
         Suggestion::Remove => "Remove".to_owned(),
@@ -755,10 +811,12 @@ fn lint_kind_color32(lint_kind: LintKind) -> egui::Color32 {
     egui::Color32::from_rgb(color.r, color.g, color.b)
 }
 
+#[cfg(not(target_os = "macos"))]
 fn hex(r: u8, g: u8, b: u8) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
+#[cfg(not(target_os = "macos"))]
 fn blend(from: egui::Color32, to: egui::Color32, to_weight: f32) -> egui::Color32 {
     let from_weight = 1.0_f32 - to_weight;
     let [fr, fg, fb, _] = from.to_array();

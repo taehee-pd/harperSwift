@@ -1,8 +1,10 @@
+<!-- Modified in this fork (taehee-pd/harperSwift): adds the Clarity settings section on macOS. -->
 <script lang="ts">
 import { Button, Checkbox, CheckIcon, Input, Select, SettingRow } from 'components';
 import type { Dialect } from 'harper.js';
 import { onMount } from 'svelte';
 import { Client } from '$lib/client';
+import ClaritySettings from '../components/ClaritySettings.svelte';
 import { DIALECT_OPTIONS } from '../settings-data';
 
 const DialectValue = {
@@ -409,4 +411,6 @@ function settingsValueToDialect(value: string): Dialect {
             <p class="result-summary">Saving debounce delay...</p>
           {/if}
         </div>
+
+        <ClaritySettings />
       </section>

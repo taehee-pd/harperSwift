@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): carries Clarity settings messages on macOS
+// (`clarity/settings.rs`).
+
 use crate::config::Integration;
 use harper_core::{Dialect, IgnoredLints, linting::FlatConfig};
 use serde::{Deserialize, Serialize};
@@ -12,27 +15,62 @@ pub enum Request {
     GetIgnoredLints,
     GetIntegrations,
     GetAutoEnableNewApps,
-    ResolveIntegration { bundle_id: String },
-    SetLintConfig { config: FlatConfig },
-    IgnoreLint { ignored_lints: IgnoredLints },
-    AddToDictionary { word: String },
-    AddIntegration { bundle_id: String },
-    RemoveIntegration { bundle_id: String },
-    SetIntegrationEnabled { bundle_id: String, enabled: bool },
+    ResolveIntegration {
+        bundle_id: String,
+    },
+    SetLintConfig {
+        config: FlatConfig,
+    },
+    IgnoreLint {
+        ignored_lints: IgnoredLints,
+    },
+    AddToDictionary {
+        word: String,
+    },
+    AddIntegration {
+        bundle_id: String,
+    },
+    RemoveIntegration {
+        bundle_id: String,
+    },
+    SetIntegrationEnabled {
+        bundle_id: String,
+        enabled: bool,
+    },
+    #[cfg(target_os = "macos")]
+    Clarity(crate::clarity::settings::ClarityMessage),
 }
 
 /// Canonical server-to-client protocol message sent by the Tauri app.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Response {
-    GetLintConfig { config: FlatConfig },
-    GetDictionary { words: Vec<String> },
-    GetDialect { dialect: Dialect },
-    GetDebounceMs { debounce_ms: u64 },
-    GetIgnoredLints { ignored_lints: IgnoredLints },
-    GetIntegrations { integrations: Vec<Integration> },
-    GetAutoEnableNewApps { enabled: bool },
-    ResolveIntegration { enabled: bool },
+    GetLintConfig {
+        config: FlatConfig,
+    },
+    GetDictionary {
+        words: Vec<String>,
+    },
+    GetDialect {
+        dialect: Dialect,
+    },
+    GetDebounceMs {
+        debounce_ms: u64,
+    },
+    GetIgnoredLints {
+        ignored_lints: IgnoredLints,
+    },
+    GetIntegrations {
+        integrations: Vec<Integration>,
+    },
+    GetAutoEnableNewApps {
+        enabled: bool,
+    },
+    ResolveIntegration {
+        enabled: bool,
+    },
     Ack,
+    #[cfg(target_os = "macos")]
+    Clarity(crate::clarity::settings::ClarityReply),
 }
 
 #[cfg(test)]

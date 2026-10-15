@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): sends Clarity settings messages on macOS
+// (`clarity/settings.rs`).
+
 use harper_core::{
     Dialect, DictWordMetadata, IgnoredLints, linting::FlatConfig, spell::MutableDictionary,
 };
@@ -140,6 +143,20 @@ where
         self.set_lint_config(&config).await?;
 
         Ok(config)
+    }
+
+    /// Sends a Clarity settings message (`clarity/settings.rs`).
+    #[cfg(target_os = "macos")]
+    pub async fn clarity(
+        &mut self,
+        message: crate::clarity::settings::ClarityMessage,
+    ) -> Result<crate::clarity::settings::ClarityReply, ProtocolError> {
+        match self.send_request(Request::Clarity(message)).await? {
+            Response::Clarity(reply) => Ok(reply),
+            _ => Err(ProtocolError::UnexpectedResponse {
+                expected: "Clarity",
+            }),
+        }
     }
 
     pub async fn add_to_dictionary(&mut self, word: &str) -> Result<(), ProtocolError> {

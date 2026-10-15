@@ -1,3 +1,5 @@
+// Modified in this fork (taehee-pd/harperSwift): drives the native macOS popup from the event loop.
+
 use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
@@ -12,6 +14,8 @@ use super::DisableRule;
 use super::Error;
 use super::IgnoreLint;
 use super::RefreshConfig;
+#[cfg(target_os = "macos")]
+use super::native_popup::NativePopup;
 use super::render_state::{HitTarget, RenderState};
 use super::window::Window;
 use crate::os_broker::{LintText, OsBroker};
@@ -116,6 +120,8 @@ struct WindowManagerApp {
     hovered_lint: Option<usize>,
     cursor_hittest_enabled: bool,
     error: Option<Error>,
+    #[cfg(target_os = "macos")]
+    native_popup: NativePopup,
 }
 
 impl WindowManagerApp {
@@ -143,6 +149,8 @@ impl WindowManagerApp {
             hovered_lint: None,
             cursor_hittest_enabled: false,
             error: None,
+            #[cfg(target_os = "macos")]
+            native_popup: NativePopup::new(),
         }
     }
 
@@ -166,6 +174,12 @@ impl WindowManagerApp {
     /// Toggles native click-through behavior based on the cursor's current interactive Harper target,
     /// keeping editor clicks from being swallowed when the pointer is outside highlights and popups.
     fn update_cursor_hittest(&mut self, event_loop: &ActiveEventLoop) {
+        // On macOS the overlay stays click-through so clicking an underline never activates Harper;
+        // the native popup detects clicks instead (`native_popup::NativePopup::sync`).
+        if cfg!(target_os = "macos") {
+            return;
+        }
+
         let Some(cursor_pos) = self.os_broker.cursor_position() else {
             return;
         };
@@ -225,6 +239,10 @@ impl ApplicationHandler for WindowManagerApp {
         }
 
         self.update_cursor_hittest(event_loop);
+
+        #[cfg(target_os = "macos")]
+        self.native_popup
+            .sync(&mut self.render_state, || self.os_broker.cursor_position());
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {

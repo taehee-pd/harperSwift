@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): answers Clarity settings messages on macOS
+// (`clarity/settings.rs`).
+
 use crate::config::Config;
 use harper_core::{DictWordMetadata, spell::Dictionary};
 use std::sync::Arc;
@@ -146,6 +149,11 @@ where
 
                 Response::Ack
             }
+            #[cfg(target_os = "macos")]
+            Request::Clarity(message) => Response::Clarity(
+                crate::clarity::settings::handle_message(message, &mut *self.config.lock().await)
+                    .await,
+            ),
         }
     }
 }

@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): saves the Clarity setting on macOS
+// (`clarity/settings.rs`).
+
 mod error;
 mod integration;
 
@@ -29,6 +32,8 @@ pub struct Config {
     /// Failed attempts also count toward the automatic 24-hour interval.
     pub last_update_check: Option<u64>,
     pub highlighter_service_enabled: bool,
+    #[cfg(target_os = "macos")]
+    pub clarity: crate::clarity::ClaritySettings,
 }
 
 impl Config {
@@ -45,6 +50,8 @@ impl Config {
             auto_update: true,
             last_update_check: None,
             highlighter_service_enabled: true,
+            #[cfg(target_os = "macos")]
+            clarity: Default::default(),
         }
     }
 
@@ -187,7 +194,8 @@ impl Config {
 
     #[allow(dead_code)]
     fn serialize_main(&self) -> serde_json::Result<String> {
-        serde_json::to_string(&serde_json::json!({
+        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+        let mut main = serde_json::json!({
             "dialect": &self.dialect,
             "ignored_lints": &self.ignored_lints,
             "lint_config": &self.lint_config,
@@ -198,7 +206,13 @@ impl Config {
             "auto_update": self.auto_update,
             "last_update_check": self.last_update_check,
             "highlighter_service_enabled": self.highlighter_service_enabled,
-        }))
+        });
+        #[cfg(target_os = "macos")]
+        {
+            main["clarity"] = serde_json::to_value(&self.clarity)?;
+        }
+
+        serde_json::to_string(&main)
     }
 
     #[allow(dead_code)]
@@ -231,6 +245,8 @@ impl Config {
                 "highlighter_service_enabled",
             )?
             .unwrap_or(true),
+            #[cfg(target_os = "macos")]
+            clarity: deserialize_optional_field(object, "clarity")?.unwrap_or_default(),
         })
     }
 }

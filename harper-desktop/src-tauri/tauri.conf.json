@@ -23,9 +23,13 @@
 			"icons/128x128.png",
 			"icons/128x128@2x.png",
 			"icons/icon.icns",
+			"icons/icon.icon",
 			"icons/icon.ico"
 		],
-		"createUpdaterArtifacts": true
+		"createUpdaterArtifacts": true,
+		"macOS": {
+			"minimumSystemVersion": "13.0"
+		}
 	},
 	"plugins": {
 		"updater": {
