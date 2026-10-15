@@ -21,9 +21,9 @@ cd harper-desktop/src-tauri && cargo test native_popup  # Rust side: action mapp
 
 | Direction | Call | Notes |
 |---|---|---|
-| Rust to Swift | `harper_popup_show(json)` | New lint: fade and scale in, VoiceOver announcement |
+| Rust to Swift | `harper_popup_show(json)` | New lint: fade and scale in from the word (or swap in place if already open), VoiceOver announcement |
 | Rust to Swift | `harper_popup_update(json)` | Same lint moved or changed: re-measure and re-place |
-| Rust to Swift | `harper_popup_hide()` | |
+| Rust to Swift | `harper_popup_hide()` | Fade and scale back toward the word; a `show` during the fade reverses it |
 | Rust to Swift | `harper_popup_contains_point(x, y)` | Lets Rust ignore clicks that land on the popup |
 | Swift to Rust | action callback `(popup_id, kind, index)` | Close, ApplySuggestion(index), IgnoreLint, AddToDictionary, DisableRule |
 
@@ -36,3 +36,11 @@ cd harper-desktop/src-tauri && cargo test native_popup  # Rust side: action mapp
 ## Coordinates
 
 Accessibility rects use global coordinates with the origin at the top-left of the primary display (y down). AppKit uses the bottom-left of the primary display (y up). `PopupGeometry.appKitRect` flips y with the primary display height, which works for every monitor, including monitors above or left of the main one. Both systems use points, so scale factors do not matter. Placement uses the `visibleFrame` of the screen that shows the word.
+
+## Design
+
+- Background: Liquid Glass (`NSGlassEffectView`, corner radius 16) on macOS 26 and later, the `.popover` material with a hairline border (radius 12) before. Builds with Xcode older than 26 always use the material.
+- Suggestions show the text as it will read after the change: a replacement shows the new text, an insertion shows the word with its addition ("However,"), a removal shows the word struck through. The tooltip and VoiceOver label keep the full description.
+- The first suggestion is filled with the system accent color, like a default button. The lint kind color appears only as the dot next to the kind name, matching the underline.
+- Harper quotes words in code spans; the popup shows them in bold instead of a monospaced font.
+- With Reduce Motion on, only the fades run.

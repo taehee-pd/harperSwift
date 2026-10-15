@@ -22,7 +22,15 @@ struct PopupData: Decodable, Equatable {
     }
 
     struct Suggestion: Decodable, Equatable {
-        /// Button text: the suggested text itself.
+        enum Kind: String, Decodable {
+            case replace
+            /// Insert `label` after the flagged text.
+            case insert
+            case remove
+        }
+
+        let kind: Kind
+        /// The replacement or inserted text; "Remove" for removals.
         let label: String
         /// Tooltip and VoiceOver label, such as "Replace “Ths” with “This”".
         let description: String
@@ -31,9 +39,8 @@ struct PopupData: Decodable, Equatable {
     /// Changes whenever Rust shows different content; echoed back with every action.
     let id: UInt64
     let kindName: String
+    /// The underline color for this kind of lint.
     let kindColor: RGB
-    /// True when the kind color needs dark text on top of it.
-    let kindColorIsLight: Bool
     let ruleName: String
     /// Markdown.
     let message: String

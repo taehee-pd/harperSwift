@@ -2,23 +2,35 @@
 
 import SwiftUI
 
-/// The popup content. The material background, rounded corners and shadow come from the panel
-/// (`PopupController`), so this view only draws what sits on top of them.
+/// The popup content. The background (Liquid Glass or the popover material), its rounded corners
+/// and the shadow come from the panel (`PopupController`), so this view only draws what sits on
+/// top of them.
 struct PopupView: View {
     static let width: CGFloat = 320
 
     let data: PopupData?
+    let chrome: PopupChrome
     let onAction: (PopupAction) -> Void
 
     var body: some View {
         if let data {
-            PopupCard(data: data, onAction: onAction)
+            PopupCard(data: data, chrome: chrome, onAction: onAction)
         }
     }
 }
 
+/// Spacing for the card. Text keeps one inset from every edge; the close button and the footer
+/// buttons sit closer to the corners so their rounded shapes stay roughly concentric with the
+/// panel's corners.
+private enum Metrics {
+    static let textInset: CGFloat = 14
+    static let cornerInset: CGFloat = 7
+    static let closeButtonSize: CGFloat = 22
+}
+
 private struct PopupCard: View {
     let data: PopupData
+    let chrome: PopupChrome
     let onAction: (PopupAction) -> Void
 
     private var kindColor: Color {
@@ -32,11 +44,14 @@ private struct PopupCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                header
+            header
+                .padding(.leading, Metrics.textInset)
+                .padding([.top, .trailing], Metrics.cornerInset)
 
+            VStack(alignment: .leading, spacing: 12) {
                 Text(PopupText.message(data.message))
                     .font(.system(size: 13))
+                    .lineSpacing(2)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -44,27 +59,29 @@ private struct PopupCard: View {
                     suggestions
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
+            .padding(.horizontal, Metrics.textInset)
+            .padding(.top, 4)
+            .padding(.bottom, Metrics.textInset)
 
             Divider()
 
             footer
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(Metrics.cornerInset)
         }
         .frame(width: PopupView.width, alignment: .leading)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-        )
+        .overlay {
+            if chrome.drawsBorder {
+                RoundedRectangle(cornerRadius: chrome.cornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(data.kindName) suggestion")
     }
 
     private var header: some View {
         HStack(spacing: 6) {
+            // The same color as the underline, so the popup reads as belonging to that word.
             Circle()
                 .fill(kindColor)
                 .frame(width: 8, height: 8)
@@ -82,10 +99,10 @@ private struct PopupCard: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
+                    .frame(width: Metrics.closeButtonSize, height: Metrics.closeButtonSize)
+                    .contentShape(Circle())
             }
-            .buttonStyle(HoverButtonStyle(shape: Circle(), padding: 0))
+            .buttonStyle(QuietButtonStyle(horizontalPadding: 0, verticalPadding: 0))
             .help("Close")
             .accessibilityLabel("Close")
         }
@@ -94,16 +111,12 @@ private struct PopupCard: View {
     private var suggestions: some View {
         FlowLayout(spacing: 6) {
             ForEach(Array(data.suggestions.enumerated()), id: \.offset) { index, suggestion in
-                Button(suggestion.label) {
+                Button {
                     onAction(.applySuggestion(index))
+                } label: {
+                    Text(PopupText.suggestion(suggestion, flaggedText: data.flaggedText))
                 }
-                .buttonStyle(
-                    SuggestionButtonStyle(
-                        isPrimary: index == 0,
-                        color: kindColor,
-                        colorIsLight: data.kindColorIsLight
-                    )
-                )
+                .buttonStyle(SuggestionButtonStyle(isPrimary: index == 0))
                 .help(suggestion.description)
                 .accessibilityLabel(suggestion.description)
             }
@@ -111,7 +124,7 @@ private struct PopupCard: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             Button("Ignore") { onAction(.ignoreLint) }
                 .help("Ignore this suggestion")
                 .accessibilityLabel("Ignore this suggestion")
@@ -124,29 +137,71 @@ private struct PopupCard: View {
 
             Spacer(minLength: 8)
 
+            // Changes a setting rather than this one lint, so it sits apart from the others.
             Button("Disable rule") { onAction(.disableRule) }
                 .help("Stop checking \(data.ruleName)")
                 .accessibilityLabel("Disable rule \(data.ruleName)")
         }
-        .buttonStyle(HoverButtonStyle(shape: RoundedRectangle(cornerRadius: 6, style: .continuous), padding: 6))
+        // Text inset = corner inset + horizontal padding, so labels line up with the message.
+        .buttonStyle(QuietButtonStyle(horizontalPadding: Metrics.textInset - Metrics.cornerInset, verticalPadding: 4))
         .font(.system(size: 12))
     }
 }
 
 /// Text helpers shared by the view and the VoiceOver announcement.
 enum PopupText {
-    /// Renders Harper's inline markdown (code spans, emphasis); falls back to the raw text.
+    /// Renders Harper's inline markdown. Harper quotes words in code spans (`Did you mean `This`?`);
+    /// those read as bold here, like the other emphasized words in its messages, instead of
+    /// switching to a monospaced font mid-sentence. Falls back to the raw text.
     static func message(_ markdown: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
+        guard let parsed = try? AttributedString(markdown: markdown, options: options) else {
+            return AttributedString(markdown)
+        }
+
+        // Rebuilt in one pass: changing attributes in place would invalidate the run ranges.
+        var text = AttributedString()
+        for run in parsed.runs {
+            var piece = AttributedString(parsed[run.range])
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                piece.inlinePresentationIntent = intent.subtracting(.code).union(.stronglyEmphasized)
+            }
+            text.append(piece)
+        }
+        return text
+    }
+
+    /// What a suggestion button shows: the flagged text as it will read after the change. An
+    /// insertion shows the word with its addition ("However,"), a removal shows the word struck
+    /// through. Text that would be invisible (spaces) falls back to words.
+    static func suggestion(_ suggestion: PopupData.Suggestion, flaggedText: String) -> AttributedString {
+        switch suggestion.kind {
+        case .replace:
+            return isVisible(suggestion.label)
+                ? AttributedString(suggestion.label)
+                : AttributedString(suggestion.description)
+        case .insert:
+            return isVisible(suggestion.label)
+                ? AttributedString(flaggedText + suggestion.label)
+                : AttributedString(suggestion.description)
+        case .remove:
+            guard isVisible(flaggedText) else { return AttributedString(suggestion.label) }
+            var text = AttributedString(flaggedText)
+            text.strikethroughStyle = .single
+            return text
+        }
+    }
+
+    private static func isVisible(_ text: String) -> Bool {
+        !text.allSatisfy(\.isWhitespace)
     }
 
     /// What VoiceOver reads when the popup appears: kind, message, then suggestions.
     static func announcement(for data: PopupData) -> String {
         let message = String(message(data.message).characters)
-        let suggestions = data.suggestions.map(\.label).joined(separator: ", ")
+        let suggestions = data.suggestions.map(\.description).joined(separator: ", ")
 
         return suggestions.isEmpty
             ? "\(data.kindName). \(message)"
@@ -154,53 +209,69 @@ enum PopupText {
     }
 }
 
-/// Filled chip for suggestions. Drawn by hand instead of using `.borderedProminent`, because the
-/// panel is never key and system button styles would render in their inactive (gray) look.
+/// Capsule button for suggestions. The first one is filled with the system accent color, the way
+/// macOS marks a default button; the rest are tinted. Drawn by hand instead of using
+/// `.borderedProminent`, because the panel is never key and system button styles would render in
+/// their inactive (gray) look.
 private struct SuggestionButtonStyle: ButtonStyle {
     let isPrimary: Bool
-    let color: Color
-    let colorIsLight: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        SuggestionLabel(configuration: configuration, isPrimary: isPrimary)
+    }
 
-        configuration.label
-            .font(.system(size: 13, weight: isPrimary ? .semibold : .regular))
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .foregroundStyle(isPrimary ? (colorIsLight ? Color.black : Color.white) : Color.primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(shape.fill(isPrimary ? color : Color.primary.opacity(0.07)))
-            .overlay(shape.strokeBorder(isPrimary ? Color.clear : Color.primary.opacity(0.12), lineWidth: 0.5))
-            .contentShape(shape)
-            .opacity(configuration.isPressed ? 0.7 : 1)
+    private struct SuggestionLabel: View {
+        let configuration: ButtonStyleConfiguration
+        let isPrimary: Bool
+        @State private var isHovered = false
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 13, weight: isPrimary ? .semibold : .regular))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(isPrimary ? Color.white : Color.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(fill))
+                // Pressing darkens the button at once (on mouse-down), the way AppKit buttons do.
+                .overlay(Capsule().fill(Color.black.opacity(configuration.isPressed ? 0.14 : 0)))
+                .contentShape(Capsule())
+                .onHover { isHovered = $0 }
+        }
+
+        private var fill: Color {
+            if isPrimary {
+                let accent = Color(nsColor: .controlAccentColor)
+                return isHovered ? accent.opacity(0.9) : accent
+            }
+            return Color.primary.opacity(isHovered ? 0.12 : 0.08)
+        }
     }
 }
 
-/// Quiet text or icon button with a hover highlight.
-private struct HoverButtonStyle<S: Shape>: ButtonStyle {
-    let shape: S
-    /// Horizontal padding around the label; vertical padding is two thirds of it.
-    let padding: CGFloat
+/// Quiet text or icon button: secondary text, with a capsule highlight on hover and press.
+private struct QuietButtonStyle: ButtonStyle {
+    let horizontalPadding: CGFloat
+    let verticalPadding: CGFloat
 
     func makeBody(configuration: Configuration) -> some View {
-        HoverLabel(configuration: configuration, shape: shape, padding: padding)
+        QuietLabel(configuration: configuration, horizontalPadding: horizontalPadding, verticalPadding: verticalPadding)
     }
 
-    private struct HoverLabel: View {
+    private struct QuietLabel: View {
         let configuration: ButtonStyleConfiguration
-        let shape: S
-        let padding: CGFloat
+        let horizontalPadding: CGFloat
+        let verticalPadding: CGFloat
         @State private var isHovered = false
 
         var body: some View {
             configuration.label
                 .foregroundStyle(isHovered ? Color.primary : Color.secondary)
-                .padding(.horizontal, padding)
-                .padding(.vertical, padding * 2 / 3)
-                .background(shape.fill(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovered ? 0.07 : 0)))
-                .contentShape(shape)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, verticalPadding)
+                .background(Capsule().fill(Color.primary.opacity(configuration.isPressed ? 0.14 : isHovered ? 0.08 : 0)))
+                .contentShape(Capsule())
                 .onHover { isHovered = $0 }
         }
     }

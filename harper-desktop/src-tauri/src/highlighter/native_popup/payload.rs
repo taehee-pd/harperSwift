@@ -8,7 +8,7 @@ use harper_core::linting::Suggestion;
 use serde::Serialize;
 
 use super::super::render_state::{is_spelling_kind, suggestion_text};
-use crate::lint_kind_color::{TextColor, lint_kind_color, lint_kind_text_color};
+use crate::lint_kind_color::lint_kind_color;
 use crate::rect::{ActionableLint, Rect};
 
 /// JSON sent with `show` and `update`.
@@ -24,9 +24,8 @@ pub struct PopupPayload<'a> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PopupContent {
     kind_name: String,
+    /// The underline color; the popup shows it next to the kind name.
     kind_color: RgbColor,
-    /// True when the kind color needs dark text on top of it.
-    kind_color_is_light: bool,
     rule_name: String,
     /// Markdown.
     message: String,
@@ -42,9 +41,20 @@ struct RgbColor {
     b: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SuggestionKind {
+    Replace,
+    /// Insert `label` after the flagged text.
+    Insert,
+    Remove,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct SuggestionLabel {
-    /// Button text: the suggested text itself.
+    /// Lets the popup show the text as it will read after the change.
+    kind: SuggestionKind,
+    /// The replacement or inserted text; "Remove" for removals.
     label: String,
     /// Tooltip and VoiceOver label.
     description: String,
@@ -79,7 +89,6 @@ impl PopupContent {
                 g: color.g,
                 b: color.b,
             },
-            kind_color_is_light: lint_kind_text_color(kind) == TextColor::Black,
             rule_name: lint.rule_name.clone(),
             message: lint.lint.message.clone(),
             suggestions: lint
@@ -87,6 +96,7 @@ impl PopupContent {
                 .suggestions
                 .iter()
                 .map(|suggestion| SuggestionLabel {
+                    kind: SuggestionKind::from(suggestion),
                     label: suggestion_text(suggestion),
                     description: suggestion_description(suggestion, &flagged_text),
                 })
@@ -104,6 +114,16 @@ impl From<Rect> for AnchorRect {
             y: rect.y,
             width: rect.width,
             height: rect.height,
+        }
+    }
+}
+
+impl From<&Suggestion> for SuggestionKind {
+    fn from(suggestion: &Suggestion) -> Self {
+        match suggestion {
+            Suggestion::ReplaceWith(_) => Self::Replace,
+            Suggestion::InsertAfter(_) => Self::Insert,
+            Suggestion::Remove => Self::Remove,
         }
     }
 }
@@ -157,7 +177,6 @@ pub mod tests {
         assert_eq!(content.kind_name, "Spelling");
         assert_eq!(content.flagged_text, "Ths");
         assert!(content.can_add_to_dictionary);
-        assert!(!content.kind_color_is_light);
         assert_eq!(
             content
                 .suggestions
@@ -165,6 +184,18 @@ pub mod tests {
                 .map(|suggestion| suggestion.label.as_str())
                 .collect::<Vec<_>>(),
             ["This", "e", "Remove"]
+        );
+        assert_eq!(
+            content
+                .suggestions
+                .iter()
+                .map(|suggestion| suggestion.kind)
+                .collect::<Vec<_>>(),
+            [
+                SuggestionKind::Replace,
+                SuggestionKind::Insert,
+                SuggestionKind::Remove
+            ]
         );
         assert_eq!(
             content.suggestions[1].description,
