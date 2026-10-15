@@ -350,7 +350,7 @@ pub fn run_highlighter(has_parent: bool) {
         organized_lints
     };
     #[cfg(target_os = "macos")]
-    let lint_text = clarity::wrap_lint_text(lint_text);
+    let lint_text = clarity::wrap_lint_text(lint_text, linter.clone(), user_dictionary.clone());
 
     let ignore_lint = move |lint: &Lint, document: &Document| {
         {

@@ -13,19 +13,23 @@ mod issue;
 mod provider;
 mod scheduler;
 mod segment;
+mod validate;
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use harper_core::Document;
 use harper_core::language_detection::is_doc_likely_english;
-use harper_core::linting::{Lint, LintKind};
-use harper_core::spell::FstDictionary;
+use harper_core::linting::{Lint, LintGroup, LintKind, Linter};
+use harper_core::spell::{FstDictionary, MutableDictionary};
 
 use crate::color::Color;
+use crate::config::Config;
 use crate::lint_kind_color::lint_kind_color;
 use apple::AppleProvider;
-use engine::ClarityEngine;
+use engine::{ClarityEngine, HarperCheck};
 use provider::{ClarityProvider, FakeProvider};
 
 /// The name people see for this kind of suggestion. Rename it here.
@@ -110,37 +114,49 @@ pub fn is_clarity_rule(rule_name: &str) -> bool {
 
 /// Wraps Harper's `lint_text` so Clarity lints are merged into its result.
 ///
-/// Uses Apple's on-device model. Setting `HARPER_CLARITY_FAKE` swaps in canned suggestions, for
-/// trying the pipeline on a Mac without Apple Intelligence.
+/// `linter` and `user_dictionary` are the highlighter's own, so suggestions are validated against
+/// the user's rules, dialect and words. Uses Apple's on-device model; setting
+/// `HARPER_CLARITY_FAKE` swaps in canned suggestions, for trying the pipeline on a Mac without
+/// Apple Intelligence.
 pub fn wrap_lint_text(
     harper_lint_text: impl FnMut(&str) -> BTreeMap<String, Vec<Lint>>,
+    linter: Rc<RefCell<LintGroup>>,
+    user_dictionary: Rc<RefCell<MutableDictionary>>,
 ) -> impl FnMut(&str) -> BTreeMap<String, Vec<Lint>> {
     let provider: Box<dyn ClarityProvider> = if std::env::var_os("HARPER_CLARITY_FAKE").is_some() {
         Box::new(FakeProvider::new(Duration::from_millis(400)))
     } else {
         Box::new(AppleProvider::new())
     };
+    let harper: HarperCheck = Box::new(move |text| {
+        let dictionary = Config::dictionary_from_user_dictionary(user_dictionary.borrow().clone());
+        let document = Document::new_markdown_default(text, &dictionary);
+        linter.borrow_mut().lint(&document)
+    });
 
     with_engine(
-        Some(ClarityEngine::new(provider)),
+        ClarityEngine::new(provider, harper),
         harper_lint_text,
         Instant::now,
     )
 }
 
 fn with_engine<P: ClarityProvider>(
-    mut engine: Option<ClarityEngine<P>>,
+    mut engine: ClarityEngine<P>,
     mut harper_lint_text: impl FnMut(&str) -> BTreeMap<String, Vec<Lint>>,
     now: impl Fn() -> Instant,
 ) -> impl FnMut(&str) -> BTreeMap<String, Vec<Lint>> {
     move |text| {
         let mut lints = harper_lint_text(text);
+        let harper_spans = lints
+            .values()
+            .flatten()
+            .map(|lint| lint.span.start..lint.span.end)
+            .collect::<Vec<_>>();
 
-        if let Some(engine) = engine.as_mut() {
-            let clarity = engine.lints(text, now(), is_likely_english);
-            if !clarity.is_empty() {
-                lints.insert(CLARITY_RULE_NAME.to_owned(), clarity);
-            }
+        let clarity = engine.lints(text, now(), is_likely_english, &harper_spans);
+        if !clarity.is_empty() {
+            lints.insert(CLARITY_RULE_NAME.to_owned(), clarity);
         }
 
         lints
@@ -232,10 +248,14 @@ mod tests {
     #[test]
     fn files_clarity_lints_under_their_own_rule_name() {
         let clock = Rc::new(Cell::new(Instant::now()));
-        let engine = ClarityEngine::with_pause(FakeProvider::new(Duration::ZERO), TYPING_PAUSE);
+        let engine = ClarityEngine::with_pause(
+            FakeProvider::new(Duration::ZERO),
+            Box::new(|_| Vec::new()),
+            TYPING_PAUSE,
+        );
         let harper = |_: &str| BTreeMap::from([("SpellCheck".to_owned(), Vec::new())]);
         let time = clock.clone();
-        let mut lint_text = with_engine(Some(engine), harper, move || time.get());
+        let mut lint_text = with_engine(engine, harper, move || time.get());
         let text = "The team met in order to discuss the plan.";
 
         assert!(!lint_text(text).contains_key(CLARITY_RULE_NAME));

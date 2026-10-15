@@ -1,21 +1,26 @@
 //! Added in this fork (taehee-pd/harperSwift).
 //!
-//! Runs inside `lint_text` on every frame. It never waits: it collects finished model results,
-//! queues the next sentence when typing has paused, and returns lints for sentences that are
-//! already checked.
+//! Runs inside `lint_text` on every frame. It never waits: it collects and validates finished
+//! model results, queues the next sentence when typing has paused, and returns lints for sentences
+//! that are already checked.
 
 use std::collections::VecDeque;
+use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use harper_core::linting::Lint;
 
 use super::cache::{self, ClarityCache};
-use super::issue::{locate, to_lint};
+use super::issue::to_lint;
 use super::provider::{Availability, ClarityProvider, ClarityRequest};
 use super::scheduler::Scheduler;
 use super::segment::{Sentence, sentences};
+use super::validate::{overlaps_harper, validate};
 use super::{TYPING_PAUSE, stable_hash};
+
+/// Lints text with the user's Harper settings, for validating suggestions.
+pub type HarperCheck = Box<dyn FnMut(&str) -> Vec<Lint>>;
 
 /// How often to ask the provider whether the model can run.
 const AVAILABILITY_INTERVAL: Duration = Duration::from_secs(2);
@@ -33,6 +38,7 @@ struct Segmented {
 
 pub struct ClarityEngine<P: ClarityProvider> {
     provider: P,
+    harper: HarperCheck,
     cache: ClarityCache,
     scheduler: Scheduler,
     segmented: VecDeque<Segmented>,
@@ -40,13 +46,14 @@ pub struct ClarityEngine<P: ClarityProvider> {
 }
 
 impl<P: ClarityProvider> ClarityEngine<P> {
-    pub fn new(provider: P) -> Self {
-        Self::with_pause(provider, TYPING_PAUSE)
+    pub fn new(provider: P, harper: HarperCheck) -> Self {
+        Self::with_pause(provider, harper, TYPING_PAUSE)
     }
 
-    pub fn with_pause(provider: P, pause: Duration) -> Self {
+    pub fn with_pause(provider: P, harper: HarperCheck, pause: Duration) -> Self {
         Self {
             provider,
+            harper,
             cache: ClarityCache::new(cache::CAPACITY),
             scheduler: Scheduler::new(pause),
             segmented: VecDeque::new(),
@@ -54,7 +61,8 @@ impl<P: ClarityProvider> ClarityEngine<P> {
         }
     }
 
-    /// Clarity lints for `text` from results already in the cache. Queues a model request when
+    /// Clarity lints for `text` from results already in the cache, leaving out any that overlap
+    /// `harper_spans` (Harper's lints for the same text, in chars). Queues a model request when
     /// typing has paused. `is_english` runs at most once per text, and only when there is something
     /// to check.
     pub fn lints(
@@ -62,6 +70,7 @@ impl<P: ClarityProvider> ClarityEngine<P> {
         text: &str,
         now: Instant,
         is_english: impl FnOnce(&str) -> bool,
+        harper_spans: &[Range<usize>],
     ) -> Vec<Lint> {
         self.collect_results(now);
 
@@ -83,21 +92,19 @@ impl<P: ClarityProvider> ClarityEngine<P> {
         if matches!(availability, Availability::Unavailable(_)) {
             return Vec::new();
         }
-        self.merge(&sentences)
+        self.merge(&sentences, harper_spans)
     }
 
-    /// Stores finished results. Results for requests that were cancelled or replaced are dropped.
+    /// Validates and stores finished results. Results for requests that were cancelled or
+    /// replaced are dropped.
     fn collect_results(&mut self, now: Instant) {
         for response in self.provider.poll(now) {
             let Some(request) = self.scheduler.finish(response.id) else {
                 continue;
             };
 
-            let issues = response
-                .issues
-                .into_iter()
-                .filter_map(|issue| locate(&request.sentence, issue))
-                .collect();
+            let (issues, _rejected) =
+                validate(&request.sentence, response.issues, &mut *self.harper);
             self.cache.insert(request.key, issues);
         }
     }
@@ -127,7 +134,7 @@ impl<P: ClarityProvider> ClarityEngine<P> {
         });
     }
 
-    fn merge(&mut self, sentences: &[Sentence]) -> Vec<Lint> {
+    fn merge(&mut self, sentences: &[Sentence], harper_spans: &[Range<usize>]) -> Vec<Lint> {
         sentences
             .iter()
             .flat_map(|sentence| {
@@ -136,6 +143,9 @@ impl<P: ClarityProvider> ClarityEngine<P> {
                     .unwrap_or_default()
                     .iter()
                     .map(|issue| to_lint(sentence, issue))
+                    .filter(|lint| {
+                        !overlaps_harper(&(lint.span.start..lint.span.end), harper_spans)
+                    })
                     .collect::<Vec<_>>()
             })
             .collect()
@@ -208,16 +218,31 @@ mod tests {
     impl Harness {
         fn new() -> Self {
             Self {
-                engine: ClarityEngine::with_pause(FakeProvider::new(LATENCY), PAUSE),
+                engine: engine(),
                 start: Instant::now(),
             }
         }
 
         /// Lints for `text` read `ms` milliseconds after the start.
         fn read(&mut self, text: &str, ms: u64) -> Vec<String> {
+            self.read_with_harper(text, ms, &[])
+        }
+
+        /// Like `read`, with Harper lints at `harper` (chars).
+        fn read_with_harper(
+            &mut self,
+            text: &str,
+            ms: u64,
+            harper: &[Range<usize>],
+        ) -> Vec<String> {
             let chars = text.chars().collect::<Vec<_>>();
             self.engine
-                .lints(text, self.start + Duration::from_millis(ms), |_| true)
+                .lints(
+                    text,
+                    self.start + Duration::from_millis(ms),
+                    |_| true,
+                    harper,
+                )
                 .into_iter()
                 .map(|lint| chars[lint.span.start..lint.span.end].iter().collect())
                 .collect()
@@ -226,6 +251,11 @@ mod tests {
         fn provider(&mut self) -> &mut FakeProvider {
             self.engine.provider_mut()
         }
+    }
+
+    /// An engine whose Harper check finds nothing, so only the text rules of validation apply.
+    fn engine() -> ClarityEngine<FakeProvider> {
+        ClarityEngine::with_pause(FakeProvider::new(LATENCY), Box::new(|_| Vec::new()), PAUSE)
     }
 
     const TEXT: &str =
@@ -270,12 +300,12 @@ mod tests {
         assert_eq!(harness.read(text, 2600).len(), 2);
 
         let edited = text.replace("plan the trip", "plan our trip");
-        let remaining =
-            harness
-                .engine
-                .lints(&edited, harness.start + Duration::from_millis(2700), |_| {
-                    true
-                });
+        let remaining = harness.engine.lints(
+            &edited,
+            harness.start + Duration::from_millis(2700),
+            |_| true,
+            &[],
+        );
 
         assert_eq!(remaining.len(), 1);
         assert!(remaining[0].span.start > edited.find("They").unwrap());
@@ -333,16 +363,62 @@ mod tests {
     }
 
     #[test]
+    fn harper_wins_where_lints_overlap_and_clarity_returns_when_harper_is_done() {
+        let mut harness = Harness::new();
+        harness.read(TEXT, 0);
+        harness.read(TEXT, 1600);
+        harness.read(TEXT, 2100);
+        let order = TEXT.find("order").unwrap();
+        let on_order = order..order + 5;
+        let elsewhere = 0..2;
+
+        assert!(
+            harness
+                .read_with_harper(TEXT, 2200, std::slice::from_ref(&on_order))
+                .is_empty()
+        );
+        assert_eq!(
+            harness.read_with_harper(TEXT, 2300, std::slice::from_ref(&elsewhere)),
+            ["in order to"]
+        );
+    }
+
+    #[test]
+    fn drops_suggestions_that_fail_validation() {
+        // The fake flags "in order to" in both sentences, but in the first it appears twice.
+        let text =
+            "We trained in order to win and in order to grow. We met in order to plan the trip.";
+        let mut harness = Harness::new();
+        for ms in [0, 1600, 2100, 2600] {
+            harness.read(text, ms);
+        }
+
+        let lints = harness.engine.lints(
+            text,
+            harness.start + Duration::from_millis(2700),
+            |_| true,
+            &[],
+        );
+        assert_eq!(lints.len(), 1);
+        assert!(lints[0].span.start > text.find("We met").unwrap());
+    }
+
+    #[test]
     fn skips_text_that_is_not_english() {
-        let mut engine = ClarityEngine::with_pause(FakeProvider::new(LATENCY), PAUSE);
+        let mut engine = engine();
         let start = Instant::now();
         let mut checks = 0;
 
         for ms in [0, 1600, 1700] {
-            engine.lints(TEXT, start + Duration::from_millis(ms), |_| {
-                checks += 1;
-                false
-            });
+            engine.lints(
+                TEXT,
+                start + Duration::from_millis(ms),
+                |_| {
+                    checks += 1;
+                    false
+                },
+                &[],
+            );
         }
 
         assert!(engine.provider_mut().submitted.is_empty());
