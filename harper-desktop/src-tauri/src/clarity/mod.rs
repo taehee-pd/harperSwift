@@ -158,6 +158,7 @@ fn with_engine<P: ClarityProvider>(
         let now = now();
         settings::record_status(engine.availability(now));
         if !settings::is_enabled() {
+            engine.cancel_in_flight();
             return lints;
         }
 

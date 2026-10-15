@@ -119,6 +119,11 @@ impl Scheduler {
         id
     }
 
+    /// Ends the request in flight, returning its id so the provider can cancel it.
+    pub fn take_in_flight(&mut self) -> Option<RequestId> {
+        self.in_flight.take().map(|in_flight| in_flight.id)
+    }
+
     /// Ends the request `id`, returning it if it was still current.
     pub fn finish(&mut self, id: RequestId) -> Option<InFlight> {
         self.in_flight.take_if(|in_flight| in_flight.id == id)

@@ -134,20 +134,24 @@ where
     W: AsyncWrite + Unpin,
 {
     let (turn_off, unreported_status) = HIGHLIGHTER.with(|state| {
-        let mut state = state.borrow_mut();
+        let state = state.borrow();
         let unreported = state
             .status
             .filter(|status| state.reported_status != Some(*status));
-        (std::mem::take(&mut state.turn_off_requested), unreported)
+        (state.turn_off_requested, unreported)
     });
 
     runtime.block_on(async {
-        if turn_off
-            && let Err(error) = client
+        // The request stays pending until the app confirms it, so a failed save is retried on the
+        // next sync instead of being lost.
+        if turn_off {
+            match client
                 .clarity(ClarityMessage::SetEnabled { enabled: false })
                 .await
-        {
-            eprintln!("failed to turn off Clarity: {error}");
+            {
+                Ok(_) => HIGHLIGHTER.with(|state| state.borrow_mut().turn_off_requested = false),
+                Err(error) => eprintln!("failed to turn off Clarity: {error}"),
+            }
         }
 
         if let Some(status) = unreported_status {
@@ -160,9 +164,13 @@ where
         }
 
         match client.clarity(ClarityMessage::GetEnabled).await {
-            Ok(ClarityReply::Enabled { enabled }) => {
-                HIGHLIGHTER.with(|state| state.borrow_mut().enabled = enabled);
-            }
+            Ok(ClarityReply::Enabled { enabled }) => HIGHLIGHTER.with(|state| {
+                let mut state = state.borrow_mut();
+                // Until a turn-off is saved, the app still reports the old setting.
+                if !state.turn_off_requested {
+                    state.enabled = enabled;
+                }
+            }),
             Ok(_) => eprintln!("unexpected reply to a Clarity setting request"),
             Err(error) => eprintln!("failed to read the Clarity setting: {error}"),
         }
@@ -359,6 +367,23 @@ mod tests {
             server.receive_request()
         );
         assert_eq!(reply.unwrap(), ClarityReply::Enabled { enabled: true });
+    }
+
+    /// A turn-off that could not be saved stays pending, and Clarity stays off meanwhile.
+    #[test]
+    fn keeps_a_turn_off_that_failed_to_save() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        // The app never answers: every request fails.
+        let mut client = Client::new(tokio::io::empty(), tokio::io::sink());
+
+        turn_off();
+        sync_with_app(&mut client, &runtime);
+
+        assert!(HIGHLIGHTER.with(|state| state.borrow().turn_off_requested));
+        assert!(!is_enabled());
     }
 
     #[test]

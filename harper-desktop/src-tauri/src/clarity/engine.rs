@@ -121,6 +121,15 @@ impl<P: ClarityProvider> ClarityEngine<P> {
         }
     }
 
+    /// Stops the request in flight, if any, so the model does no work while Clarity is off. A
+    /// result that still arrives is dropped, and the sentence is checked again once Clarity is
+    /// back on.
+    pub fn cancel_in_flight(&mut self) {
+        if let Some(id) = self.scheduler.take_in_flight() {
+            self.provider.cancel(id);
+        }
+    }
+
     /// Hides a suggestion dismissed in the popup. Dismissals are also saved with Harper's ignored
     /// lints, which [`Self::without_dismissed`] applies when the sentence is checked again.
     pub fn dismiss(&mut self, key: SentenceKey, span: &Range<usize>) {
@@ -481,6 +490,23 @@ mod tests {
         }
         assert!(restarted.read(TEXT, 2200).is_empty());
         assert_eq!(restarted.provider().submitted.len(), 2);
+    }
+
+    #[test]
+    fn cancelling_stops_the_running_request_and_rechecks_later() {
+        let mut harness = Harness::new();
+        harness.read(TEXT, 0);
+        harness.read(TEXT, 1600);
+        let id = harness.provider().submitted[0].id;
+
+        harness.engine.cancel_in_flight();
+        assert_eq!(harness.provider().cancelled, [id]);
+
+        // The cancelled sentence was never cached, so it is checked again.
+        harness.read(TEXT, 3200);
+        let submitted = &harness.provider().submitted;
+        assert_eq!(submitted.len(), 2);
+        assert_eq!(submitted[1].sentence, submitted[0].sentence);
     }
 
     #[test]
