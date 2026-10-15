@@ -33,6 +33,23 @@ cd harper-desktop/src-tauri && cargo test native_popup  # Rust side: action mapp
 - The underline overlay stays click-through on macOS. Rust compares the system mouse-down counters each frame: a left click on an underline opens the popup; any other click outside the popup closes it.
 - The popup also closes when the text under it changes (typing) or another app becomes active.
 
+## Clarity (Apple Intelligence)
+
+`Sources/HarperPopup/Clarity/` checks sentences with Apple's on-device model for the Clarity suggestions (`src-tauri/src/clarity/`). Rust decides what to check and when; Swift runs one request at a time.
+
+| Direction | Call | Notes |
+|---|---|---|
+| Rust to Swift | `harper_clarity_availability()` | Code: 0 available, 1 Low Power Mode, 2 battery below 20%, 3 device not eligible, 4 Apple Intelligence off, 5 model not ready, 6 macOS older than 27 |
+| Rust to Swift | `harper_clarity_prewarm()` | Prewarms the session the next request will use |
+| Rust to Swift | `harper_clarity_submit(id, sentence)` | Fresh `LanguageModelSession` per request, greedy sampling, guided generation |
+| Rust to Swift | `harper_clarity_cancel(id)` | |
+| Swift to Rust | result callback `(id, json)` | JSON array of `{original, replacement, reason}`; empty on any failure |
+
+- Uses macOS 27 Foundation Models APIs only, and only `SystemLanguageModel.default`, so text stays on the Mac. On older macOS the availability code is 6 and nothing runs.
+- FoundationModels is weak-linked automatically (every reference is gated to macOS 27), so the app still launches on macOS 13.
+- `ClarityResult` asks the model to quote the problem phrase before writing fixes. On a 15-sentence sample this cut false alarms on clear sentences from 5 of 5 to 0 of 5, at the cost of catching 6 instead of 10 of 10 wordy sentences.
+- Failures (context window, guardrails, cancellation) are logged at debug level under subsystem `com.elijahpotter.harper-desktop`, category `Clarity`, and count as "no issues".
+
 ## Coordinates
 
 Accessibility rects use global coordinates with the origin at the top-left of the primary display (y down). AppKit uses the bottom-left of the primary display (y up). `PopupGeometry.appKitRect` flips y with the primary display height, which works for every monitor, including monitors above or left of the main one. Both systems use points, so scale factors do not matter. Placement uses the `visibleFrame` of the screen that shows the word.

@@ -28,9 +28,7 @@ pub struct ClarityResponse {
     pub issues: Vec<RawIssue>,
 }
 
-/// Whether checks can run right now. The reasons are reported by the Swift provider, which
-/// replaces the fake one outside tests.
-#[allow(dead_code)]
+/// Whether checks can run right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Availability {
     Available,
@@ -39,14 +37,12 @@ pub enum Availability {
     Unavailable(UnavailableReason),
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseReason {
     LowPowerMode,
     LowBattery,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnavailableReason {
     DeviceNotEligible,

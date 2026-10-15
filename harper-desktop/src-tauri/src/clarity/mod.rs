@@ -6,6 +6,7 @@
 //! ([`engine::ClarityEngine`]). Clarity lints are filed under [`CLARITY_RULE_NAME`] in the map
 //! `lint_text` returns, so they reach the screen through the same Accessibility code as Harper's.
 
+mod apple;
 mod cache;
 mod engine;
 mod issue;
@@ -23,6 +24,7 @@ use harper_core::spell::FstDictionary;
 
 use crate::color::Color;
 use crate::lint_kind_color::lint_kind_color;
+use apple::AppleProvider;
 use engine::ClarityEngine;
 use provider::{ClarityProvider, FakeProvider};
 
@@ -108,18 +110,22 @@ pub fn is_clarity_rule(rule_name: &str) -> bool {
 
 /// Wraps Harper's `lint_text` so Clarity lints are merged into its result.
 ///
-/// The Apple Intelligence provider arrives in a later change. Until then Clarity stays off unless
-/// `HARPER_CLARITY_FAKE` is set, which turns on canned suggestions for trying the pipeline.
+/// Uses Apple's on-device model. Setting `HARPER_CLARITY_FAKE` swaps in canned suggestions, for
+/// trying the pipeline on a Mac without Apple Intelligence.
 pub fn wrap_lint_text(
     harper_lint_text: impl FnMut(&str) -> BTreeMap<String, Vec<Lint>>,
 ) -> impl FnMut(&str) -> BTreeMap<String, Vec<Lint>> {
-    let engine = std::env::var_os("HARPER_CLARITY_FAKE").map(|_| {
-        let provider: Box<dyn ClarityProvider> =
-            Box::new(FakeProvider::new(Duration::from_millis(400)));
-        ClarityEngine::new(provider)
-    });
+    let provider: Box<dyn ClarityProvider> = if std::env::var_os("HARPER_CLARITY_FAKE").is_some() {
+        Box::new(FakeProvider::new(Duration::from_millis(400)))
+    } else {
+        Box::new(AppleProvider::new())
+    };
 
-    with_engine(engine, harper_lint_text, Instant::now)
+    with_engine(
+        Some(ClarityEngine::new(provider)),
+        harper_lint_text,
+        Instant::now,
+    )
 }
 
 fn with_engine<P: ClarityProvider>(
