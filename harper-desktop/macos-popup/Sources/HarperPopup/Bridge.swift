@@ -5,6 +5,14 @@
 
 import Foundation
 
+/// Receives the popup id, the action kind, and the suggestion index (see `PopupAction.raw`).
+public typealias HarperPopupActionHandler = @convention(c) (UInt64, UInt32, Int64) -> Void
+
+@_cdecl("harper_popup_set_action_handler")
+public func harperPopupSetActionHandler(_ handler: HarperPopupActionHandler?) {
+    MainActor.assumeIsolated { PopupController.actionHandler = handler }
+}
+
 @_cdecl("harper_popup_show")
 public func harperPopupShow(_ json: UnsafePointer<CChar>?) {
     guard let data = PopupData.decode(json) else { return }

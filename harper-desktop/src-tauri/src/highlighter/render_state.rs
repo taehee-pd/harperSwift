@@ -26,7 +26,7 @@ pub enum HitTarget {
     None,
 }
 
-enum LintCardAction {
+pub(super) enum LintCardAction {
     Close,
     ApplySuggestion(Suggestion),
     IgnoreLint,
@@ -171,62 +171,67 @@ impl RenderState {
             let lint = positioned_lint.lint.clone();
             let source_text = positioned_lint.source_text.clone();
 
-            match render_lint_card(ui, &rect, &lint, &source_text, &mut self.markdown_cache) {
-                Some(LintCardAction::Close) => self.close_popup(),
-                Some(LintCardAction::ApplySuggestion(suggestion)) => {
-                    if let Some(actionable_lint) = self
-                        .last_lints
-                        .as_mut()
-                        .and_then(|lints| lints.get_mut(index))
-                    {
-                        actionable_lint.apply_suggestion(suggestion);
-                    }
+            if let Some(action) =
+                render_lint_card(ui, &rect, &lint, &source_text, &mut self.markdown_cache)
+            {
+                self.apply_card_action(index, action);
+            }
+        }
+    }
 
-                    self.close_popup();
+    /// Runs a popup action against the lint at `index`. Shared by the egui card and the native
+    /// macOS popup so both behave the same.
+    pub(super) fn apply_card_action(&mut self, index: usize, action: LintCardAction) {
+        match action {
+            LintCardAction::Close => self.close_popup(),
+            LintCardAction::ApplySuggestion(suggestion) => {
+                if let Some(actionable_lint) = self
+                    .last_lints
+                    .as_mut()
+                    .and_then(|lints| lints.get_mut(index))
+                {
+                    actionable_lint.apply_suggestion(suggestion);
                 }
-                Some(LintCardAction::IgnoreLint) => {
-                    if let Some((lint, source_text)) =
-                        self.lints().get(index).map(|actionable_lint| {
-                            (
-                                actionable_lint.lint.clone(),
-                                actionable_lint.source_text.clone(),
-                            )
-                        })
-                    {
-                        let document = Document::new_markdown_default_curated(&source_text);
-                        (self.ignore_lint)(&lint, &document);
-                    }
 
-                    self.close_popup();
+                self.close_popup();
+            }
+            LintCardAction::IgnoreLint => {
+                if let Some((lint, source_text)) = self.lints().get(index).map(|actionable_lint| {
+                    (
+                        actionable_lint.lint.clone(),
+                        actionable_lint.source_text.clone(),
+                    )
+                }) {
+                    let document = Document::new_markdown_default_curated(&source_text);
+                    (self.ignore_lint)(&lint, &document);
                 }
-                Some(LintCardAction::AddToDictionary) => {
-                    if let Some((lint, source_text)) =
-                        self.lints().get(index).map(|actionable_lint| {
-                            (
-                                actionable_lint.lint.clone(),
-                                actionable_lint.source_text.clone(),
-                            )
-                        })
-                    {
-                        let document = Document::new_markdown_default_curated(&source_text);
-                        let word = lint.get_str(document.get_source());
-                        (self.add_to_dictionary)(&word);
-                    }
 
-                    self.close_popup();
+                self.close_popup();
+            }
+            LintCardAction::AddToDictionary => {
+                if let Some((lint, source_text)) = self.lints().get(index).map(|actionable_lint| {
+                    (
+                        actionable_lint.lint.clone(),
+                        actionable_lint.source_text.clone(),
+                    )
+                }) {
+                    let document = Document::new_markdown_default_curated(&source_text);
+                    let word = lint.get_str(document.get_source());
+                    (self.add_to_dictionary)(&word);
                 }
-                Some(LintCardAction::DisableRule) => {
-                    if let Some(rule_name) = self
-                        .lints()
-                        .get(index)
-                        .map(|actionable_lint| actionable_lint.rule_name.clone())
-                    {
-                        (self.disable_rule)(&rule_name);
-                    }
 
-                    self.close_popup();
+                self.close_popup();
+            }
+            LintCardAction::DisableRule => {
+                if let Some(rule_name) = self
+                    .lints()
+                    .get(index)
+                    .map(|actionable_lint| actionable_lint.rule_name.clone())
+                {
+                    (self.disable_rule)(&rule_name);
                 }
-                None => {}
+
+                self.close_popup();
             }
         }
     }
@@ -647,7 +652,7 @@ fn draw_plus_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     );
 }
 
-fn is_spelling_kind(lint_kind: LintKind) -> bool {
+pub(super) fn is_spelling_kind(lint_kind: LintKind) -> bool {
     match lint_kind {
         LintKind::Eggcorn | LintKind::Malapropism | LintKind::Spelling | LintKind::Typo => true,
         LintKind::Agreement
@@ -716,7 +721,7 @@ fn popup_style_for_lint_kind(lint_kind: LintKind) -> PopupStyle {
 }
 
 /// Converts Harper suggestion variants into button text.
-fn suggestion_text(suggestion: &Suggestion) -> String {
+pub(super) fn suggestion_text(suggestion: &Suggestion) -> String {
     match suggestion {
         Suggestion::ReplaceWith(chars) | Suggestion::InsertAfter(chars) => chars.iter().collect(),
         Suggestion::Remove => "Remove".to_owned(),

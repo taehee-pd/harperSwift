@@ -12,7 +12,12 @@ let package = Package(
     ],
     targets: [
         .target(name: "HarperPopup"),
-        .testTarget(name: "HarperPopupTests", dependencies: ["HarperPopup"]),
+        .testTarget(
+            name: "HarperPopupTests",
+            dependencies: ["HarperPopup"],
+            // Shared with the Rust tests; read from disk by path.
+            exclude: ["Fixtures"]
+        ),
     ],
     swiftLanguageModes: [.v5]
 )

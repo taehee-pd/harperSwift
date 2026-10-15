@@ -150,7 +150,7 @@ impl WindowManagerApp {
             cursor_hittest_enabled: false,
             error: None,
             #[cfg(target_os = "macos")]
-            native_popup: NativePopup::default(),
+            native_popup: NativePopup::new(),
         }
     }
 
@@ -235,7 +235,7 @@ impl ApplicationHandler for WindowManagerApp {
         self.update_cursor_hittest(event_loop);
 
         #[cfg(target_os = "macos")]
-        self.native_popup.sync(&self.render_state);
+        self.native_popup.sync(&mut self.render_state);
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {

@@ -1,16 +1,53 @@
 //! Added in this fork (taehee-pd/harperSwift).
 //!
 //! JSON sent to Swift. Field names must match `PopupData` in `PopupModel.swift` (snake_case here,
-//! camelCase there).
+//! camelCase there). `macos-popup/Tests/HarperPopupTests/Fixtures/popup.json` pins the format for
+//! both sides.
 
+use harper_core::linting::Suggestion;
 use serde::Serialize;
 
-use crate::rect::Rect;
+use super::super::render_state::{is_spelling_kind, suggestion_text};
+use crate::lint_kind_color::{TextColor, lint_kind_color, lint_kind_text_color};
+use crate::rect::{ActionableLint, Rect};
 
-#[derive(Debug, Clone, Serialize)]
-pub struct PopupPayload {
+/// JSON sent with `show` and `update`.
+#[derive(Debug, Serialize)]
+pub struct PopupPayload<'a> {
     pub id: u64,
+    #[serde(flatten)]
+    pub content: &'a PopupContent,
     pub anchor: AnchorRect,
+}
+
+/// Everything the popup displays for one lint, except its position.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PopupContent {
+    kind_name: String,
+    kind_color: RgbColor,
+    /// True when the kind color needs dark text on top of it.
+    kind_color_is_light: bool,
+    rule_name: String,
+    /// Markdown.
+    message: String,
+    suggestions: Vec<SuggestionLabel>,
+    flagged_text: String,
+    can_add_to_dictionary: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+struct RgbColor {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct SuggestionLabel {
+    /// Button text: the suggested text itself.
+    label: String,
+    /// Tooltip and VoiceOver label.
+    description: String,
 }
 
 /// The flagged word in Accessibility coordinates (global, top-left origin, points).
@@ -22,6 +59,44 @@ pub struct AnchorRect {
     height: f64,
 }
 
+impl PopupContent {
+    pub fn new(lint: &ActionableLint) -> Self {
+        let kind = lint.lint.lint_kind;
+        let color = lint_kind_color(kind);
+        let source_chars = lint.source_text.chars().collect::<Vec<_>>();
+        // Lints may briefly be cached for older, longer text while the user types.
+        let flagged_text = lint
+            .lint
+            .span
+            .try_get_content(&source_chars)
+            .map(|chars| chars.iter().collect::<String>())
+            .unwrap_or_default();
+
+        Self {
+            kind_name: kind.to_string(),
+            kind_color: RgbColor {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+            },
+            kind_color_is_light: lint_kind_text_color(kind) == TextColor::Black,
+            rule_name: lint.rule_name.clone(),
+            message: lint.lint.message.clone(),
+            suggestions: lint
+                .lint
+                .suggestions
+                .iter()
+                .map(|suggestion| SuggestionLabel {
+                    label: suggestion_text(suggestion),
+                    description: suggestion_description(suggestion, &flagged_text),
+                })
+                .collect(),
+            can_add_to_dictionary: is_spelling_kind(kind),
+            flagged_text,
+        }
+    }
+}
+
 impl From<Rect> for AnchorRect {
     fn from(rect: Rect) -> Self {
         Self {
@@ -30,5 +105,94 @@ impl From<Rect> for AnchorRect {
             width: rect.width,
             height: rect.height,
         }
+    }
+}
+
+fn suggestion_description(suggestion: &Suggestion, flagged_text: &str) -> String {
+    match suggestion {
+        Suggestion::ReplaceWith(chars) => format!(
+            "Replace \u{201c}{flagged_text}\u{201d} with \u{201c}{}\u{201d}",
+            chars.iter().collect::<String>()
+        ),
+        Suggestion::InsertAfter(chars) => format!(
+            "Insert \u{201c}{}\u{201d} after \u{201c}{flagged_text}\u{201d}",
+            chars.iter().collect::<String>()
+        ),
+        Suggestion::Remove => format!("Remove \u{201c}{flagged_text}\u{201d}"),
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use harper_core::Span;
+    use harper_core::linting::{Lint, LintKind};
+
+    use super::*;
+
+    /// "Ths is fine." with "Ths" flagged as a spelling mistake.
+    pub fn spelling_lint() -> ActionableLint {
+        ActionableLint::new(
+            Rect::new(120.0, 340.5, 24.0, 17.0),
+            "SpellCheck".to_owned(),
+            Lint {
+                span: Span::new(0, 3),
+                lint_kind: LintKind::Spelling,
+                suggestions: vec![
+                    Suggestion::ReplaceWith("This".chars().collect()),
+                    Suggestion::InsertAfter("e".chars().collect()),
+                    Suggestion::Remove,
+                ],
+                message: "Did you mean `This`?".to_owned(),
+                ..Default::default()
+            },
+            "Ths is fine.".to_owned(),
+            |_| {},
+        )
+    }
+
+    #[test]
+    fn describes_the_lint_for_the_popup() {
+        let content = PopupContent::new(&spelling_lint());
+
+        assert_eq!(content.kind_name, "Spelling");
+        assert_eq!(content.flagged_text, "Ths");
+        assert!(content.can_add_to_dictionary);
+        assert!(!content.kind_color_is_light);
+        assert_eq!(
+            content
+                .suggestions
+                .iter()
+                .map(|suggestion| suggestion.label.as_str())
+                .collect::<Vec<_>>(),
+            ["This", "e", "Remove"]
+        );
+        assert_eq!(
+            content.suggestions[1].description,
+            "Insert \u{201c}e\u{201d} after \u{201c}Ths\u{201d}"
+        );
+    }
+
+    #[test]
+    fn tolerates_spans_past_the_end_of_the_text() {
+        let mut lint = spelling_lint();
+        lint.lint.span = Span::new(10, 40);
+
+        assert_eq!(PopupContent::new(&lint).flagged_text, "");
+    }
+
+    #[test]
+    fn matches_the_fixture_decoded_by_swift() {
+        let lint = spelling_lint();
+        let payload = PopupPayload {
+            id: 7,
+            content: &PopupContent::new(&lint),
+            anchor: lint.rect.into(),
+        };
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../macos-popup/Tests/HarperPopupTests/Fixtures/popup.json"
+        ))
+        .unwrap();
+
+        assert_eq!(serde_json::to_value(&payload).unwrap(), fixture);
     }
 }
