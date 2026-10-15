@@ -46,6 +46,11 @@ It is redrawn for macOS in Icon Composer:
 
 The source is [`harper-desktop/src-tauri/icons/icon.icon`](harper-desktop/src-tauri/icons/icon.icon); [the icons README](harper-desktop/src-tauri/icons/README.md) explains how it is built and used.
 
+### Download
+
+Get the latest disk image from [Releases](https://github.com/taehee-pd/harperSwift/releases/latest). It runs on Apple Silicon Macs with macOS 13 or later, and updates itself from this repository's releases.
+The app is signed ad hoc rather than with an Apple Developer ID, so macOS blocks it the first time: after moving Harper to Applications, run `xattr -dr com.apple.quarantine /Applications/Harper.app`, or choose Open Anyway in System Settings → Privacy & Security.
+
 ### Build it
 
 You need an Apple Silicon Mac with macOS 13 or later (Clarity needs macOS 27), Xcode 26 or later, and the tools from the [contributor setup](https://writewithharper.com/docs/contributors/environment), including `just` and `wasm-pack`.
@@ -56,6 +61,7 @@ just build-desktop-macos-unsigned
 
 The app and disk image are written to `harper-desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/`.
 The build is signed ad hoc for your Mac only, so macOS asks for Accessibility access again after each rebuild.
+To publish a release with update files, see [`harper-desktop/RELEASING.md`](harper-desktop/RELEASING.md).
 
 The rest of this README is Harper's own.
 
