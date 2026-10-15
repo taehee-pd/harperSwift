@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): on macOS, `lint_text` also merges Clarity
+// suggestions (`clarity/`).
+
 mod tray;
 mod windows;
 
@@ -43,6 +46,8 @@ pub mod lint_kind_color;
 mod os_broker;
 pub mod rect;
 
+#[cfg(target_os = "macos")]
+mod clarity;
 #[cfg(target_os = "macos")]
 mod mac_broker;
 
@@ -344,6 +349,8 @@ pub fn run_highlighter(has_parent: bool) {
 
         organized_lints
     };
+    #[cfg(target_os = "macos")]
+    let lint_text = clarity::wrap_lint_text(lint_text);
 
     let ignore_lint = move |lint: &Lint, document: &Document| {
         {

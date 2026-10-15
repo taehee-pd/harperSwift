@@ -8,7 +8,7 @@ use harper_core::linting::Suggestion;
 use serde::Serialize;
 
 use super::super::render_state::{is_spelling_kind, suggestion_text};
-use crate::lint_kind_color::lint_kind_color;
+use crate::clarity::{DesktopLintKind, LintOrigin};
 use crate::rect::{ActionableLint, Rect};
 
 /// JSON sent with `show` and `update`.
@@ -71,8 +71,8 @@ pub struct AnchorRect {
 
 impl PopupContent {
     pub fn new(lint: &ActionableLint) -> Self {
-        let kind = lint.lint.lint_kind;
-        let color = lint_kind_color(kind);
+        let origin = LintOrigin::of(&lint.rule_name, &lint.lint);
+        let color = origin.kind.color();
         let source_chars = lint.source_text.chars().collect::<Vec<_>>();
         // Lints may briefly be cached for older, longer text while the user types.
         let flagged_text = lint
@@ -83,7 +83,7 @@ impl PopupContent {
             .unwrap_or_default();
 
         Self {
-            kind_name: kind.to_string(),
+            kind_name: origin.kind.name(),
             kind_color: RgbColor {
                 r: color.r,
                 g: color.g,
@@ -101,7 +101,10 @@ impl PopupContent {
                     description: suggestion_description(suggestion, &flagged_text),
                 })
                 .collect(),
-            can_add_to_dictionary: is_spelling_kind(kind),
+            can_add_to_dictionary: matches!(
+                origin.kind,
+                DesktopLintKind::Harper(kind) if is_spelling_kind(kind)
+            ),
             flagged_text,
         }
     }

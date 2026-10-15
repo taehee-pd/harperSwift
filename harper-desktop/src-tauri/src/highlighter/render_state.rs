@@ -1,5 +1,6 @@
 // Modified in this fork (taehee-pd/harperSwift): exposes popup state and actions to the native
-// macOS popup (`native_popup/`) and compiles the egui card out on macOS.
+// macOS popup (`native_popup/`), compiles the egui card out on macOS, and draws Clarity lints with
+// a dashed underline.
 
 #[cfg(not(target_os = "macos"))]
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -169,6 +170,12 @@ impl RenderState {
     /// regions and clickable regions do not drift apart.
     pub fn render(&mut self, ui: &mut egui::Ui) {
         for positioned_lint in self.lints() {
+            #[cfg(target_os = "macos")]
+            if crate::clarity::is_clarity_rule(&positioned_lint.rule_name) {
+                super::clarity_underline::draw(ui, rect_bounds(&positioned_lint.rect));
+                continue;
+            }
+
             draw_highlight(ui, &positioned_lint.rect, &positioned_lint.lint);
         }
 
