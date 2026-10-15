@@ -25,7 +25,7 @@ cd harper-desktop/src-tauri && cargo test native_popup  # Rust side: action mapp
 | Rust to Swift | `harper_popup_update(json)` | Same lint moved or changed: re-measure and re-place |
 | Rust to Swift | `harper_popup_hide()` | Fade and scale back toward the word; a `show` during the fade reverses it |
 | Rust to Swift | `harper_popup_contains_point(x, y)` | Lets Rust ignore clicks that land on the popup |
-| Swift to Rust | action callback `(popup_id, kind, index)` | Close, ApplySuggestion(index), IgnoreLint, AddToDictionary, DisableRule |
+| Swift to Rust | action callback `(popup_id, kind, index)` | Close, ApplySuggestion(index), IgnoreLint, AddToDictionary, DisableRule; for Clarity also DismissClarity (5) and TurnOffClarity (6) |
 
 - Rust (`src-tauri/src/highlighter/native_popup/`) owns all state. Each frame it runs queued actions through `RenderState::apply_card_action` (shared with the egui card), handles clicks, then mirrors `RenderState`'s highlighted lint into the panel.
 - Actions carry the popup id. Rust drops actions whose id or content no longer matches.
@@ -61,3 +61,4 @@ Accessibility rects use global coordinates with the origin at the top-left of th
 - The first suggestion is filled with the system accent color, like a default button. The lint kind color appears only as the dot next to the kind name, matching the underline.
 - Harper quotes words in code spans; the popup shows them in bold instead of a monospaced font.
 - With Reduce Motion on, only the fades run.
+- Clarity suggestions (`source: "apple_intelligence"`) use `ClarityCard`: kind and an "Apple Intelligence" tag in the header, the reason, the sentence with the removed words struck through and the added words highlighted, and Accept. Dismiss and "Turn off Clarity suggestions" sit where Ignore and Disable rule sit on the Harper card. Nothing is applied without Accept.

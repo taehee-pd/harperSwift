@@ -54,12 +54,16 @@ pub fn locate(sentence: &str, issue: RawIssue) -> Option<SentenceIssue> {
 }
 
 /// The document-level lint for `issue`, shifted from sentence to document positions.
+pub fn to_lint(sentence: &Sentence, issue: &SentenceIssue) -> Lint {
+    lint_at(issue, sentence.span.start)
+}
+
+/// The lint for `issue`, with its span shifted by `offset` chars. 0 gives the lint within its
+/// sentence, which is how dismissals are recorded.
 ///
 /// `lint_kind` is only a placeholder Harper requires; Clarity lints are recognized by the rule
 /// name they are filed under ([`super::CLARITY_RULE_NAME`]).
-pub fn to_lint(sentence: &Sentence, issue: &SentenceIssue) -> Lint {
-    let offset = sentence.span.start;
-
+pub fn lint_at(issue: &SentenceIssue, offset: usize) -> Lint {
     Lint {
         span: Span::new(offset + issue.span.start, offset + issue.span.end),
         lint_kind: LintKind::Readability,

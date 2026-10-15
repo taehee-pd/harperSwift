@@ -1,6 +1,6 @@
 // Modified in this fork (taehee-pd/harperSwift): exposes popup state and actions to the native
-// macOS popup (`native_popup/`), compiles the egui card out on macOS, and draws Clarity lints with
-// a dashed underline.
+// macOS popup (`native_popup/`), compiles the egui card out on macOS, draws Clarity lints with
+// a dashed underline, and records Clarity dismissals.
 
 #[cfg(not(target_os = "macos"))]
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -194,6 +194,13 @@ impl RenderState {
                 self.apply_card_action(index, action);
             }
         }
+    }
+
+    /// Records `lint` in `document` as ignored, through the same callback as the Ignore button.
+    /// Clarity dismissals pass the lint's sentence as the document.
+    #[cfg(target_os = "macos")]
+    pub(super) fn ignore_lint_with(&mut self, lint: &Lint, document: &Document) {
+        (self.ignore_lint)(lint, document);
     }
 
     /// Runs a popup action against the lint at `index`. Shared by the egui card and the native

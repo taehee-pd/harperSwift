@@ -1,5 +1,5 @@
 // Modified in this fork (taehee-pd/harperSwift): on macOS, `lint_text` also merges Clarity
-// suggestions (`clarity/`).
+// suggestions, and the config refresh syncs the Clarity setting (`clarity/`).
 
 mod tray;
 mod windows;
@@ -350,7 +350,12 @@ pub fn run_highlighter(has_parent: bool) {
         organized_lints
     };
     #[cfg(target_os = "macos")]
-    let lint_text = clarity::wrap_lint_text(lint_text, linter.clone(), user_dictionary.clone());
+    let lint_text = clarity::wrap_lint_text(
+        lint_text,
+        linter.clone(),
+        user_dictionary.clone(),
+        ignored_lints.clone(),
+    );
 
     let ignore_lint = move |lint: &Lint, document: &Document| {
         {
@@ -388,6 +393,8 @@ pub fn run_highlighter(has_parent: bool) {
             auto_update: true,
             last_update_check: None,
             highlighter_service_enabled: true,
+            #[cfg(target_os = "macos")]
+            clarity: Default::default(),
         };
         *dictionary_linter.borrow_mut() = config.create_linter();
 
@@ -434,6 +441,12 @@ pub fn run_highlighter(has_parent: bool) {
                 std::process::exit(1);
             }
         }
+
+        #[cfg(target_os = "macos")]
+        clarity::settings::sync_with_app(
+            &mut refresh_client.lock().expect("IPC client lock poisoned"),
+            &refresh_runtime,
+        );
     };
 
     if let Err(error) = Highlighter::new(
@@ -515,6 +528,8 @@ fn fetch_highlighter_config(
             auto_update: true,
             last_update_check: None,
             highlighter_service_enabled: true,
+            #[cfg(target_os = "macos")]
+            clarity: Default::default(),
         })
     })
 }

@@ -11,5 +11,7 @@
 	],
 	"flagged_text": "Ths",
 	"can_add_to_dictionary": true,
+	"source": "harper",
+	"clarity": null,
 	"anchor": { "x": 120.0, "y": 340.5, "width": 24.0, "height": 17.0 }
 }

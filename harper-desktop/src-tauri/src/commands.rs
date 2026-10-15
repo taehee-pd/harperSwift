@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): adds the Clarity settings commands on macOS
+// (`clarity/settings.rs`).
+
 //! This module centralizes all the Rust commands to be made available to the JavaScript
 //! environment. Use [`application_message_handler`] to load them into the Tauri runtime.
 
@@ -18,6 +21,13 @@ use tauri::{Manager, Runtime, State};
 use tokio::sync::Mutex;
 
 pub fn application_message_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool {
+    #[cfg(target_os = "macos")]
+    return crate::clarity::settings::with_commands(command_handler());
+    #[cfg(not(target_os = "macos"))]
+    command_handler()
+}
+
+fn command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool {
     tauri::generate_handler![
         get_lint_config,
         get_dialect,

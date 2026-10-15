@@ -4,15 +4,18 @@
 //! model results, queues the next sentence when typing has paused, and returns lints for sentences
 //! that are already checked.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use harper_core::linting::Lint;
+use harper_core::{Document, IgnoredLints};
 
+use super::SentenceKey;
 use super::cache::{self, ClarityCache};
-use super::issue::to_lint;
+use super::issue::{SentenceIssue, lint_at, to_lint};
 use super::provider::{Availability, ClarityProvider, ClarityRequest};
 use super::scheduler::Scheduler;
 use super::segment::{Sentence, sentences};
@@ -39,6 +42,8 @@ struct Segmented {
 pub struct ClarityEngine<P: ClarityProvider> {
     provider: P,
     harper: HarperCheck,
+    /// Harper's ignored lints, which also hold dismissed Clarity suggestions.
+    ignored: Rc<RefCell<IgnoredLints>>,
     cache: ClarityCache,
     scheduler: Scheduler,
     segmented: VecDeque<Segmented>,
@@ -46,14 +51,20 @@ pub struct ClarityEngine<P: ClarityProvider> {
 }
 
 impl<P: ClarityProvider> ClarityEngine<P> {
-    pub fn new(provider: P, harper: HarperCheck) -> Self {
-        Self::with_pause(provider, harper, TYPING_PAUSE)
+    pub fn new(provider: P, harper: HarperCheck, ignored: Rc<RefCell<IgnoredLints>>) -> Self {
+        Self::with_pause(provider, harper, ignored, TYPING_PAUSE)
     }
 
-    pub fn with_pause(provider: P, harper: HarperCheck, pause: Duration) -> Self {
+    pub fn with_pause(
+        provider: P,
+        harper: HarperCheck,
+        ignored: Rc<RefCell<IgnoredLints>>,
+        pause: Duration,
+    ) -> Self {
         Self {
             provider,
             harper,
+            ignored,
             cache: ClarityCache::new(cache::CAPACITY),
             scheduler: Scheduler::new(pause),
             segmented: VecDeque::new(),
@@ -105,8 +116,32 @@ impl<P: ClarityProvider> ClarityEngine<P> {
 
             let (issues, _rejected) =
                 validate(&request.sentence, response.issues, &mut *self.harper);
+            let issues = self.without_dismissed(&request.sentence, issues);
             self.cache.insert(request.key, issues);
         }
+    }
+
+    /// Hides a suggestion dismissed in the popup. Dismissals are also saved with Harper's ignored
+    /// lints, which [`Self::without_dismissed`] applies when the sentence is checked again.
+    pub fn dismiss(&mut self, key: SentenceKey, span: &Range<usize>) {
+        self.cache.remove_issue(key, span);
+    }
+
+    /// Drops suggestions dismissed earlier, matched within their sentence the same way they were
+    /// recorded.
+    fn without_dismissed(
+        &self,
+        sentence: &str,
+        mut issues: Vec<SentenceIssue>,
+    ) -> Vec<SentenceIssue> {
+        if issues.is_empty() {
+            return issues;
+        }
+
+        let document = Document::new_markdown_default_curated(sentence);
+        let ignored = self.ignored.borrow();
+        issues.retain(|issue| !ignored.is_ignored(&lint_at(issue, 0), &document));
+        issues
     }
 
     fn check_next(
@@ -181,7 +216,8 @@ impl<P: ClarityProvider> ClarityEngine<P> {
         *entry.is_english.get_or_insert_with(|| is_english(text))
     }
 
-    fn availability(&mut self, now: Instant) -> Availability {
+    /// Whether the model can run, asked of the provider at most every few seconds.
+    pub fn availability(&mut self, now: Instant) -> Availability {
         match self.availability {
             Some((checked, availability))
                 if now.duration_since(checked) < AVAILABILITY_INTERVAL =>
@@ -255,7 +291,16 @@ mod tests {
 
     /// An engine whose Harper check finds nothing, so only the text rules of validation apply.
     fn engine() -> ClarityEngine<FakeProvider> {
-        ClarityEngine::with_pause(FakeProvider::new(LATENCY), Box::new(|_| Vec::new()), PAUSE)
+        engine_ignoring(IgnoredLints::new())
+    }
+
+    fn engine_ignoring(ignored: IgnoredLints) -> ClarityEngine<FakeProvider> {
+        ClarityEngine::with_pause(
+            FakeProvider::new(LATENCY),
+            Box::new(|_| Vec::new()),
+            Rc::new(RefCell::new(ignored)),
+            PAUSE,
+        )
     }
 
     const TEXT: &str =
@@ -401,6 +446,41 @@ mod tests {
         );
         assert_eq!(lints.len(), 1);
         assert!(lints[0].span.start > text.find("We met").unwrap());
+    }
+
+    #[test]
+    fn dismissed_suggestions_disappear_and_stay_away_after_a_restart() {
+        let mut harness = Harness::new();
+        for ms in [0, 1600, 2100] {
+            harness.read(TEXT, ms);
+        }
+        let sentence = crate::clarity::segment::sentences(TEXT).remove(0);
+        let span = 7..18;
+        assert_eq!(harness.read(TEXT, 2200), ["in order to"]);
+
+        harness.engine.dismiss(sentence.key, &span);
+        assert!(harness.read(TEXT, 2300).is_empty());
+
+        // A later session starts with the dismissal saved in Harper's ignored lints.
+        let issue = crate::clarity::issue::locate(
+            &sentence.text,
+            FakeProvider::canned_issues(&sentence.text).remove(0),
+        )
+        .unwrap();
+        let mut ignored = IgnoredLints::new();
+        ignored.ignore_lint(
+            &lint_at(&issue, 0),
+            &Document::new_markdown_default_curated(&sentence.text),
+        );
+        let mut restarted = Harness {
+            engine: engine_ignoring(ignored),
+            start: Instant::now(),
+        };
+        for ms in [0, 1600, 2100] {
+            restarted.read(TEXT, ms);
+        }
+        assert!(restarted.read(TEXT, 2200).is_empty());
+        assert_eq!(restarted.provider().submitted.len(), 2);
     }
 
     #[test]

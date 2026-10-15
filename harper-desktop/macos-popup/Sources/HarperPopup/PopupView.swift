@@ -14,15 +14,19 @@ struct PopupView: View {
 
     var body: some View {
         if let data {
-            PopupCard(data: data, chrome: chrome, onAction: onAction)
+            if data.source == .appleIntelligence, let clarity = data.clarity {
+                ClarityCard(data: data, context: clarity, chrome: chrome, onAction: onAction)
+            } else {
+                PopupCard(data: data, chrome: chrome, onAction: onAction)
+            }
         }
     }
 }
 
-/// Spacing for the card. Text keeps one inset from every edge; the close button and the footer
+/// Spacing for the cards. Text keeps one inset from every edge; the close button and the footer
 /// buttons sit closer to the corners so their rounded shapes stay roughly concentric with the
 /// panel's corners.
-private enum Metrics {
+enum Metrics {
     static let textInset: CGFloat = 14
     static let cornerInset: CGFloat = 7
     static let closeButtonSize: CGFloat = 22
@@ -33,20 +37,9 @@ private struct PopupCard: View {
     let chrome: PopupChrome
     let onAction: (PopupAction) -> Void
 
-    private var kindColor: Color {
-        Color(
-            .sRGB,
-            red: Double(data.kindColor.r) / 255,
-            green: Double(data.kindColor.g) / 255,
-            blue: Double(data.kindColor.b) / 255
-        )
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.leading, Metrics.textInset)
-                .padding([.top, .trailing], Metrics.cornerInset)
+            PopupHeader(data: data, onClose: { onAction(.close) })
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(PopupText.message(data.message))
@@ -68,44 +61,9 @@ private struct PopupCard: View {
             footer
                 .padding(Metrics.cornerInset)
         }
-        .frame(width: PopupView.width, alignment: .leading)
-        .overlay {
-            if chrome.drawsBorder {
-                RoundedRectangle(cornerRadius: chrome.cornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-            }
-        }
+        .popupFrame(chrome: chrome)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(data.kindName) suggestion")
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            // The same color as the underline, so the popup reads as belonging to that word.
-            Circle()
-                .fill(kindColor)
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-
-            Text(data.kindName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .help(data.ruleName)
-
-            Spacer(minLength: 8)
-
-            Button {
-                onAction(.close)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: Metrics.closeButtonSize, height: Metrics.closeButtonSize)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(QuietButtonStyle(horizontalPadding: 0, verticalPadding: 0))
-            .help("Close")
-            .accessibilityLabel("Close")
-        }
     }
 
     private var suggestions: some View {
@@ -142,9 +100,78 @@ private struct PopupCard: View {
                 .help("Stop checking \(data.ruleName)")
                 .accessibilityLabel("Disable rule \(data.ruleName)")
         }
-        // Text inset = corner inset + horizontal padding, so labels line up with the message.
-        .buttonStyle(QuietButtonStyle(horizontalPadding: Metrics.textInset - Metrics.cornerInset, verticalPadding: 4))
-        .font(.system(size: 12))
+        .footerButtonStyle()
+    }
+}
+
+/// Kind dot, kind name, an optional source tag, and the close button.
+struct PopupHeader: View {
+    let data: PopupData
+    var tag: (title: String, systemImage: String)?
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // The same color as the underline, so the popup reads as belonging to that word.
+            Circle()
+                .fill(data.kindColor.color)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
+
+            Text(data.kindName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .help(data.ruleName)
+
+            if let tag {
+                Label(tag.title, systemImage: tag.systemImage)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+            }
+
+            Spacer(minLength: 8)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: Metrics.closeButtonSize, height: Metrics.closeButtonSize)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(QuietButtonStyle(horizontalPadding: 0, verticalPadding: 0))
+            .help("Close")
+            .accessibilityLabel("Close")
+        }
+        .padding(.leading, Metrics.textInset)
+        .padding([.top, .trailing], Metrics.cornerInset)
+    }
+}
+
+extension View {
+    /// The card width, plus the hairline border the material background needs.
+    func popupFrame(chrome: PopupChrome) -> some View {
+        frame(width: PopupView.width, alignment: .leading)
+            .overlay {
+                if chrome.drawsBorder {
+                    RoundedRectangle(cornerRadius: chrome.cornerRadius, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                }
+            }
+    }
+
+    /// Footer buttons. Text inset = corner inset + horizontal padding, so labels line up with the
+    /// message above.
+    func footerButtonStyle() -> some View {
+        buttonStyle(QuietButtonStyle(horizontalPadding: Metrics.textInset - Metrics.cornerInset, verticalPadding: 4))
+            .font(.system(size: 12))
+    }
+}
+
+extension PopupData.RGB {
+    var color: Color {
+        Color(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
     }
 }
 
@@ -198,9 +225,15 @@ enum PopupText {
         !text.allSatisfy(\.isWhitespace)
     }
 
-    /// What VoiceOver reads when the popup appears: kind, message, then suggestions.
+    /// What VoiceOver reads when the popup appears: kind (and source for Clarity), message, then
+    /// suggestions.
     static func announcement(for data: PopupData) -> String {
         let message = String(message(data.message).characters)
+        if data.source == .appleIntelligence {
+            let change = data.suggestions.first.map { " \($0.description)." } ?? ""
+            return "\(data.kindName) suggestion from Apple Intelligence. \(message)\(change)"
+        }
+
         let suggestions = data.suggestions.map(\.description).joined(separator: ", ")
 
         return suggestions.isEmpty
@@ -213,7 +246,7 @@ enum PopupText {
 /// macOS marks a default button; the rest are tinted. Drawn by hand instead of using
 /// `.borderedProminent`, because the panel is never key and system button styles would render in
 /// their inactive (gray) look.
-private struct SuggestionButtonStyle: ButtonStyle {
+struct SuggestionButtonStyle: ButtonStyle {
     let isPrimary: Bool
 
     func makeBody(configuration: Configuration) -> some View {
@@ -251,7 +284,7 @@ private struct SuggestionButtonStyle: ButtonStyle {
 }
 
 /// Quiet text or icon button: secondary text, with a capsule highlight on hover and press.
-private struct QuietButtonStyle: ButtonStyle {
+struct QuietButtonStyle: ButtonStyle {
     let horizontalPadding: CGFloat
     let verticalPadding: CGFloat
 

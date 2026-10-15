@@ -21,6 +21,20 @@ struct PopupData: Decodable, Equatable {
         let b: UInt8
     }
 
+    /// Where the lint came from: Harper's rules or Apple's on-device model (Clarity).
+    enum Source: String, Decodable {
+        case harper
+        case appleIntelligence = "apple_intelligence"
+    }
+
+    /// Clarity only: the sentence around the suggestion, split where the replacement goes.
+    struct ClarityContext: Decodable, Equatable {
+        let before: String
+        let original: String
+        let replacement: String
+        let after: String
+    }
+
     struct Suggestion: Decodable, Equatable {
         enum Kind: String, Decodable {
             case replace
@@ -47,6 +61,8 @@ struct PopupData: Decodable, Equatable {
     let suggestions: [Suggestion]
     let flaggedText: String
     let canAddToDictionary: Bool
+    let source: Source
+    let clarity: ClarityContext?
     /// The flagged word in Accessibility coordinates (top-left origin, points).
     let anchor: Rect
 
@@ -75,6 +91,10 @@ enum PopupAction: Equatable {
     case ignoreLint
     case addToDictionary
     case disableRule
+    /// Clarity only: never show this suggestion for this sentence again.
+    case dismissClarity
+    /// Clarity only: turn Clarity suggestions off.
+    case turnOffClarity
 
     /// Wire format shared with `NativeAction::from_raw` in `native_popup/action.rs`:
     /// an action kind and a suggestion index (-1 when unused).
@@ -85,6 +105,8 @@ enum PopupAction: Equatable {
         case .ignoreLint: (2, -1)
         case .addToDictionary: (3, -1)
         case .disableRule: (4, -1)
+        case .dismissClarity: (5, -1)
+        case .turnOffClarity: (6, -1)
         }
     }
 }

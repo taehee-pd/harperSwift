@@ -8,7 +8,7 @@ use harper_core::linting::Suggestion;
 use serde::Serialize;
 
 use super::super::render_state::{is_spelling_kind, suggestion_text};
-use crate::clarity::{DesktopLintKind, LintOrigin};
+use crate::clarity::{DesktopLintKind, LintOrigin, LintSource, sentence_context};
 use crate::rect::{ActionableLint, Rect};
 
 /// JSON sent with `show` and `update`.
@@ -32,6 +32,24 @@ pub struct PopupContent {
     suggestions: Vec<SuggestionLabel>,
     flagged_text: String,
     can_add_to_dictionary: bool,
+    source: PopupSource,
+    /// Clarity only: the sentence around the suggestion, for the before/after view.
+    clarity: Option<ClarityContext>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum PopupSource {
+    Harper,
+    AppleIntelligence,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct ClarityContext {
+    before: String,
+    original: String,
+    replacement: String,
+    after: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -81,6 +99,9 @@ impl PopupContent {
             .try_get_content(&source_chars)
             .map(|chars| chars.iter().collect::<String>())
             .unwrap_or_default();
+        let clarity = (origin.source == LintSource::AppleIntelligence)
+            .then(|| clarity_context(lint))
+            .flatten();
 
         Self {
             kind_name: origin.kind.name(),
@@ -106,8 +127,28 @@ impl PopupContent {
                 DesktopLintKind::Harper(kind) if is_spelling_kind(kind)
             ),
             flagged_text,
+            source: match origin.source {
+                LintSource::Harper => PopupSource::Harper,
+                LintSource::AppleIntelligence => PopupSource::AppleIntelligence,
+            },
+            clarity,
         }
     }
+}
+
+/// The sentence around a Clarity lint, split where its replacement goes.
+fn clarity_context(lint: &ActionableLint) -> Option<ClarityContext> {
+    let context = sentence_context(&lint.source_text, &lint.lint)?;
+    let Some(Suggestion::ReplaceWith(replacement)) = lint.lint.suggestions.first() else {
+        return None;
+    };
+
+    Some(ClarityContext {
+        before: context.before,
+        original: context.original,
+        replacement: replacement.iter().collect(),
+        after: context.after,
+    })
 }
 
 impl From<Rect> for AnchorRect {
@@ -203,6 +244,39 @@ pub mod tests {
         assert_eq!(
             content.suggestions[1].description,
             "Insert \u{201c}e\u{201d} after \u{201c}Ths\u{201d}"
+        );
+    }
+
+    #[test]
+    fn describes_a_clarity_lint_with_its_sentence() {
+        let text = "First sentence is right here. We met in order to plan the trip.";
+        let start = text.find("in order").unwrap();
+        let lint = ActionableLint::new(
+            Rect::new(10.0, 20.0, 30.0, 12.0),
+            crate::clarity::CLARITY_RULE_NAME.to_owned(),
+            Lint {
+                span: Span::new(start, start + 11),
+                lint_kind: LintKind::Readability,
+                suggestions: vec![Suggestion::ReplaceWith("to".chars().collect())],
+                message: "Shorter.".to_owned(),
+                ..Default::default()
+            },
+            text.to_owned(),
+            |_| {},
+        );
+        let content = PopupContent::new(&lint);
+
+        assert_eq!(content.kind_name, "Clarity");
+        assert_eq!(content.source, PopupSource::AppleIntelligence);
+        assert!(!content.can_add_to_dictionary);
+        assert_eq!(
+            content.clarity,
+            Some(ClarityContext {
+                before: "We met ".to_owned(),
+                original: "in order to".to_owned(),
+                replacement: "to".to_owned(),
+                after: " plan the trip.".to_owned(),
+            })
         );
     }
 

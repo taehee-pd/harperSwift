@@ -21,6 +21,8 @@ struct PopupModelTests {
         #expect(data.suggestions[0].description == "Replace “Ths” with “This”")
         #expect(data.flaggedText == "Ths")
         #expect(data.canAddToDictionary)
+        #expect(data.source == .harper)
+        #expect(data.clarity == nil)
         #expect(data.anchor.cgRect == CGRect(x: 120, y: 340.5, width: 24, height: 17))
     }
 
@@ -69,5 +71,7 @@ struct PopupModelTests {
         #expect(PopupAction.ignoreLint.raw == (2, -1))
         #expect(PopupAction.addToDictionary.raw == (3, -1))
         #expect(PopupAction.disableRule.raw == (4, -1))
+        #expect(PopupAction.dismissClarity.raw == (5, -1))
+        #expect(PopupAction.turnOffClarity.raw == (6, -1))
     }
 }

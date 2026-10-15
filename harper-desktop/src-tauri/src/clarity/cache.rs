@@ -62,6 +62,13 @@ impl ClarityCache {
         );
     }
 
+    /// Drops one issue from a checked sentence, keeping the sentence checked.
+    pub fn remove_issue(&mut self, key: SentenceKey, span: &std::ops::Range<usize>) {
+        if let Some(entry) = self.entries.get_mut(&key) {
+            entry.issues.retain(|issue| issue.span != *span);
+        }
+    }
+
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -115,6 +122,15 @@ mod tests {
         assert!(!cache.contains(2));
         assert!(cache.contains(3));
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn removing_an_issue_keeps_the_sentence_checked() {
+        let mut cache = ClarityCache::new(2);
+        cache.insert(1, issue("a"));
+        cache.remove_issue(1, &(0..1));
+
+        assert_eq!(cache.get(1).map(<[_]>::len), Some(0));
     }
 
     #[test]

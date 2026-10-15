@@ -14,6 +14,10 @@ pub enum NativeAction {
     IgnoreLint,
     AddToDictionary,
     DisableRule,
+    /// Clarity only: hide this suggestion for this sentence for good.
+    DismissClarity,
+    /// Clarity only: turn Clarity suggestions off.
+    TurnOffClarity,
 }
 
 impl NativeAction {
@@ -25,12 +29,15 @@ impl NativeAction {
             2 => Some(Self::IgnoreLint),
             3 => Some(Self::AddToDictionary),
             4 => Some(Self::DisableRule),
+            5 => Some(Self::DismissClarity),
+            6 => Some(Self::TurnOffClarity),
             _ => None,
         }
     }
 
     /// Resolves the action against the lint the popup was showing. Returns `None` when the action
-    /// does not apply to that lint, such as a suggestion index that no longer exists.
+    /// does not apply to that lint, such as a suggestion index that no longer exists, and for the
+    /// Clarity actions, which `NativePopup` handles itself.
     pub fn card_action(self, lint: &Lint) -> Option<LintCardAction> {
         match self {
             Self::Close => Some(LintCardAction::Close),
@@ -44,6 +51,7 @@ impl NativeAction {
                 is_spelling_kind(lint.lint_kind).then_some(LintCardAction::AddToDictionary)
             }
             Self::DisableRule => Some(LintCardAction::DisableRule),
+            Self::DismissClarity | Self::TurnOffClarity => None,
         }
     }
 }
@@ -63,6 +71,23 @@ mod tests {
             ],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn decodes_the_clarity_actions() {
+        assert_eq!(
+            NativeAction::from_raw(5, -1),
+            Some(NativeAction::DismissClarity)
+        );
+        assert_eq!(
+            NativeAction::from_raw(6, -1),
+            Some(NativeAction::TurnOffClarity)
+        );
+        assert!(
+            NativeAction::DismissClarity
+                .card_action(&lint(LintKind::Readability))
+                .is_none()
+        );
     }
 
     #[test]
@@ -88,7 +113,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_kinds_and_negative_suggestion_indexes() {
-        assert_eq!(NativeAction::from_raw(5, -1), None);
+        assert_eq!(NativeAction::from_raw(7, -1), None);
         assert_eq!(NativeAction::from_raw(u32::MAX, 0), None);
         assert_eq!(NativeAction::from_raw(1, -1), None);
     }

@@ -122,6 +122,26 @@ fn span_fits(lint: &ActionableLint) -> bool {
     lint.lint.span.end <= lint.source_text.chars().count()
 }
 
+/// Dismiss or Turn off for a Clarity suggestion. Both close the popup.
+fn apply_clarity_action(render_state: &mut RenderState, shown: &ShownPopup, action: NativeAction) {
+    let context = render_state
+        .highlighted()
+        .filter(|(index, lint)| shown.describes(*index, lint) && span_fits(lint))
+        .and_then(|(_, lint)| crate::clarity::sentence_context(&lint.source_text, &lint.lint));
+
+    match (action, context) {
+        (NativeAction::DismissClarity, Some(context)) => {
+            crate::clarity::dismiss(&context, |lint, document| {
+                render_state.ignore_lint_with(lint, document);
+            });
+        }
+        (NativeAction::TurnOffClarity, _) => crate::clarity::settings::turn_off(),
+        _ => {}
+    }
+
+    render_state.close_popup();
+}
+
 /// What a mouse press means for the popup.
 #[derive(Debug, PartialEq, Eq)]
 enum ClickOutcome {
@@ -199,6 +219,13 @@ impl NativePopup {
             let Some(action) = NativeAction::from_raw(raw.kind, raw.index) else {
                 continue;
             };
+            if matches!(
+                action,
+                NativeAction::DismissClarity | NativeAction::TurnOffClarity
+            ) {
+                apply_clarity_action(render_state, shown, action);
+                continue;
+            }
             let card_action = render_state
                 .highlighted()
                 .filter(|(index, lint)| shown.describes(*index, lint))

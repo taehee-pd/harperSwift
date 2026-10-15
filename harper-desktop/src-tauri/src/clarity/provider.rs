@@ -6,6 +6,8 @@
 
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use super::SentenceKey;
 use super::issue::RawIssue;
 
@@ -29,7 +31,7 @@ pub struct ClarityResponse {
 }
 
 /// Whether checks can run right now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Availability {
     Available,
     /// The model works, but checks wait to save power.
@@ -37,13 +39,13 @@ pub enum Availability {
     Unavailable(UnavailableReason),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PauseReason {
     LowPowerMode,
     LowBattery,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnavailableReason {
     DeviceNotEligible,
     AppleIntelligenceNotEnabled,
