@@ -1,6 +1,7 @@
 // Modified in this fork (taehee-pd/harperSwift): exposes popup state and actions to the native
-// macOS popup (`native_popup/`) and skips the egui card on macOS.
+// macOS popup (`native_popup/`) and compiles the egui card out on macOS.
 
+#[cfg(not(target_os = "macos"))]
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use harper_core::{
     Document,
@@ -16,7 +17,9 @@ use crate::{
 const CARD_WIDTH: f32 = 440.0;
 const CARD_HEIGHT: f32 = 178.0;
 const CARD_OFFSET_Y: f32 = 8.0;
+#[cfg(not(target_os = "macos"))]
 const HEADER_HEIGHT: f32 = 46.0;
+#[cfg(not(target_os = "macos"))]
 const FOOTER_HEIGHT: f32 = 43.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +37,7 @@ pub(super) enum LintCardAction {
     DisableRule,
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Copy)]
 struct PopupStyle {
     color: egui::Color32,
@@ -41,6 +45,7 @@ struct PopupStyle {
     foreground: egui::Color32,
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Debug, Clone, Copy)]
 enum Glyph {
     Close,
@@ -65,6 +70,7 @@ pub struct RenderState {
 
     /// Cache for markdown-rendered lint messages so popup redraws do not repeatedly rebuild markdown
     /// resources from scratch.
+    #[cfg(not(target_os = "macos"))]
     markdown_cache: CommonMarkCache,
 
     /// Called when the user dismisses a lint so app-level ignored-lint state can be updated.
@@ -89,6 +95,7 @@ impl RenderState {
         let mut state = Self {
             last_lints: None,
             highlighted_lint: None,
+            #[cfg(not(target_os = "macos"))]
             markdown_cache: CommonMarkCache::default(),
             ignore_lint,
             add_to_dictionary,
@@ -166,8 +173,8 @@ impl RenderState {
         }
 
         // On macOS the popup is drawn by the native SwiftUI panel (`native_popup/`).
-        if !cfg!(target_os = "macos")
-            && let Some(index) = self.highlighted_lint
+        #[cfg(not(target_os = "macos"))]
+        if let Some(index) = self.highlighted_lint
             && let Some(positioned_lint) = self.lints().get(index)
         {
             let rect = positioned_lint.rect;
@@ -261,6 +268,7 @@ fn draw_highlight(ui: &mut egui::Ui, rect: &Rect, lint: &Lint) {
 }
 
 /// Renders the suggestion popup and returns whether the explicit close control was clicked.
+#[cfg(not(target_os = "macos"))]
 fn render_lint_card(
     ui: &mut egui::Ui,
     rect: &Rect,
@@ -305,6 +313,7 @@ fn render_lint_card(
 }
 
 /// Renders the top bar from the prototype, including no-op utility icons and the real close action.
+#[cfg(not(target_os = "macos"))]
 fn render_popover_header(ui: &mut egui::Ui, lint: &Lint, action: &mut Option<LintCardAction>) {
     let style = popup_style_for_lint_kind(lint.lint_kind);
 
@@ -340,6 +349,7 @@ fn render_popover_header(ui: &mut egui::Ui, lint: &Lint, action: &mut Option<Lin
 }
 
 /// Renders the markdown explanation and horizontal suggestion chip row from the prototype body.
+#[cfg(not(target_os = "macos"))]
 fn render_popover_body(
     ui: &mut egui::Ui,
     lint: &Lint,
@@ -373,6 +383,7 @@ fn render_popover_body(
 
 /// Renders the footer controls as visual stubs so the popup matches the target component before those
 /// actions have real behavior.
+#[cfg(not(target_os = "macos"))]
 fn render_popover_footer(
     ui: &mut egui::Ui,
     lint: &Lint,
@@ -415,6 +426,7 @@ fn render_popover_footer(
 
 /// Renders Harper's markdown-formatted lint message in the popup instead of showing raw markdown
 /// markers to the user.
+#[cfg(not(target_os = "macos"))]
 fn render_lint_message(ui: &mut egui::Ui, cache: &mut CommonMarkCache, message: &str) {
     ui.scope(|ui| {
         ui.visuals_mut().code_bg_color = hex(0xf3, 0xf4, 0xf6);
@@ -429,6 +441,7 @@ fn render_lint_message(ui: &mut egui::Ui, cache: &mut CommonMarkCache, message: 
 
 /// Keeps the lint type visually attached to the popup without duplicating lint-kind formatting in
 /// the window manager.
+#[cfg(not(target_os = "macos"))]
 fn lint_kind_badge(ui: &mut egui::Ui, lint: &Lint, style: PopupStyle) {
     egui::Frame::new()
         .fill(style.background)
@@ -452,6 +465,7 @@ fn lint_kind_badge(ui: &mut egui::Ui, lint: &Lint, style: PopupStyle) {
 }
 
 /// Renders a suggestion as a compact button so later replacement behavior can attach to one place.
+#[cfg(not(target_os = "macos"))]
 fn suggestion_option(
     ui: &mut egui::Ui,
     lint_kind: LintKind,
@@ -502,6 +516,7 @@ fn suggestion_option(
 
 /// Renders the prototype's square icon-only controls without coupling their visual treatment to any
 /// behavior beyond the response returned to the caller.
+#[cfg(not(target_os = "macos"))]
 fn icon_button(ui: &mut egui::Ui, glyph: Glyph, text: &str) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::click());
     let background = if response.hovered() {
@@ -522,6 +537,7 @@ fn icon_button(ui: &mut egui::Ui, glyph: Glyph, text: &str) -> egui::Response {
 }
 
 /// Renders footer controls as no-op buttons so future actions can be wired without changing layout.
+#[cfg(not(target_os = "macos"))]
 fn ghost_button(
     ui: &mut egui::Ui,
     glyph: Option<Glyph>,
@@ -553,6 +569,7 @@ fn ghost_button(
 }
 
 /// Applies tooltip styling that visually belongs with the suggestion popup instead of egui defaults.
+#[cfg(not(target_os = "macos"))]
 fn hover_text(response: egui::Response, hover_text: impl Into<String>) -> egui::Response {
     let hover_text = hover_text.into();
 
@@ -586,6 +603,7 @@ fn hover_text(response: egui::Response, hover_text: impl Into<String>) -> egui::
 }
 
 /// Draws the small SVG-inspired line icons from the prototype using egui painter primitives.
+#[cfg(not(target_os = "macos"))]
 fn draw_glyph(ui: &egui::Ui, rect: egui::Rect, glyph: Glyph, color: egui::Color32) {
     match glyph {
         Glyph::Close => draw_close_icon(ui, rect, color),
@@ -597,6 +615,7 @@ fn draw_glyph(ui: &egui::Ui, rect: egui::Rect, glyph: Glyph, color: egui::Color3
 
 /// Draws the close glyph separately from button behavior so icon styling can change without touching
 /// the popup's interaction contract.
+#[cfg(not(target_os = "macos"))]
 fn draw_close_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.6_f32, color);
 
@@ -606,6 +625,7 @@ fn draw_close_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
         .line_segment([rect.right_top(), rect.left_bottom()], stroke);
 }
 
+#[cfg(not(target_os = "macos"))]
 fn draw_settings_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.5_f32, color);
     let center = rect.center();
@@ -624,6 +644,7 @@ fn draw_settings_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn draw_disable_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.5_f32, color);
 
@@ -636,6 +657,7 @@ fn draw_disable_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
         .line_segment([rect.left_bottom(), rect.right_top()], stroke);
 }
 
+#[cfg(not(target_os = "macos"))]
 fn draw_plus_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(1.6_f32, color);
 
@@ -678,6 +700,7 @@ pub(super) fn is_spelling_kind(lint_kind: LintKind) -> bool {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn popup_style_for_lint_kind(lint_kind: LintKind) -> PopupStyle {
     let color = lint_kind_color32(lint_kind);
 
@@ -731,6 +754,7 @@ pub(super) fn suggestion_text(suggestion: &Suggestion) -> String {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn suggestion_hover_text(suggestion: &Suggestion) -> String {
     match suggestion {
         Suggestion::Remove => "Remove".to_owned(),
@@ -773,10 +797,12 @@ fn lint_kind_color32(lint_kind: LintKind) -> egui::Color32 {
     egui::Color32::from_rgb(color.r, color.g, color.b)
 }
 
+#[cfg(not(target_os = "macos"))]
 fn hex(r: u8, g: u8, b: u8) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
+#[cfg(not(target_os = "macos"))]
 fn blend(from: egui::Color32, to: egui::Color32, to_weight: f32) -> egui::Color32 {
     let from_weight = 1.0_f32 - to_weight;
     let [fr, fg, fb, _] = from.to_array();
