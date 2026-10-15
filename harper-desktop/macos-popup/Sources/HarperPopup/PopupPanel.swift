@@ -50,6 +50,9 @@ final class PopupController {
     private let background = NSVisualEffectView()
     private let hostingView = FirstClickHostingView(rootView: PopupView(data: nil, onAction: { _ in }))
     private var data: PopupData?
+    /// Where the last placement put the popup relative to the word, for the entrance animation.
+    private var edge = PopupEdge.below
+    private var wordCenterX: CGFloat = 0
     private var screenObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
 
@@ -59,6 +62,7 @@ final class PopupController {
         // Harper is never active; without this the material would render in its inactive style.
         background.state = .active
         background.maskImage = .roundedMask(radius: 12)
+        background.wantsLayer = true
 
         hostingView.autoresizingMask = [.width, .height]
         background.addSubview(hostingView)
@@ -68,7 +72,10 @@ final class PopupController {
     func show(_ data: PopupData) {
         render(data)
         startObserving()
+        panel.alphaValue = 0
         panel.orderFrontRegardless()
+        animateIn()
+        announce(data)
     }
 
     func update(_ data: PopupData) {
@@ -77,7 +84,12 @@ final class PopupController {
             return
         }
 
+        let isNewContent = data.id != self.data?.id
         render(data)
+
+        if isNewContent {
+            announce(data)
+        }
     }
 
     func hide() {
@@ -123,6 +135,65 @@ final class PopupController {
         panel.setFrame(placement.frame, display: true)
         hostingView.frame = background.bounds
         panel.invalidateShadow()
+        edge = placement.edge
+        wordCenterX = anchor.midX - placement.frame.minX
+    }
+
+    /// Fades in over 120 ms while growing slightly out of the word. With Reduce Motion on, only
+    /// the fade runs.
+    private func animateIn() {
+        let duration = 0.12
+        let timing = CAMediaTimingFunction(name: .easeOut)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = timing
+            panel.animator().alphaValue = 1
+        } completionHandler: {
+            MainActor.assumeIsolated { PopupController.shared.panel.invalidateShadow() }
+        }
+
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              let layer = background.layer
+        else { return }
+
+        let bounds = layer.bounds
+        let pivot = CGPoint(
+            x: min(max(wordCenterX, 0), bounds.width),
+            y: edge == .below ? bounds.maxY : bounds.minY
+        )
+        // Transforms apply around the layer's anchor point, so express the pivot relative to it.
+        let offset = CGPoint(
+            x: pivot.x - bounds.width * layer.anchorPoint.x,
+            y: pivot.y - bounds.height * layer.anchorPoint.y
+        )
+        let scale: CGFloat = 0.95
+        let from = CATransform3DConcat(
+            CATransform3DConcat(
+                CATransform3DMakeTranslation(-offset.x, -offset.y, 0),
+                CATransform3DMakeScale(scale, scale, 1)
+            ),
+            CATransform3DMakeTranslation(offset.x, offset.y, 0)
+        )
+
+        let animation = CABasicAnimation(keyPath: "transform")
+        animation.fromValue = NSValue(caTransform3D: from)
+        animation.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        animation.duration = duration
+        animation.timingFunction = timing
+        layer.add(animation, forKey: "harper-popup-scale-in")
+    }
+
+    /// Lets VoiceOver read the popup even though it never takes keyboard focus.
+    private func announce(_ data: PopupData) {
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: PopupText.announcement(for: data),
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
     }
 
     private func startObserving() {
