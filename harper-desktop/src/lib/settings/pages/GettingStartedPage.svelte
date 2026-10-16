@@ -1,8 +1,10 @@
+<!-- Modified in this fork (taehee-pd/harperSwift): plainer copy, clearer status lines, and the
+     Accessibility step notices the grant by itself instead of waiting for a Recheck click. -->
 <script lang="ts">
 import { isTauri } from '@tauri-apps/api/core';
 import { platform } from '@tauri-apps/plugin-os';
-import { Button, SlideDeck } from 'components';
-import { onMount } from 'svelte';
+import { Button, CheckIcon, SlideDeck } from 'components';
+import { onDestroy, onMount, tick } from 'svelte';
 import { type AccessibilityPermissionStatus, Client, type Integration } from '$lib/client';
 import AppIcon from '../components/AppIcon.svelte';
 
@@ -13,31 +15,34 @@ type OnboardingSlide = {
 	lede: string;
 };
 
+/** How often to recheck Accessibility access while the user is in System Settings. */
+const PERMISSION_POLL_MS = 1_000;
+
 const allSlides: OnboardingSlide[] = [
 	{
 		id: 'welcome',
-		title: 'Welcome',
-		lede: "Before you can start writing with Harper, we need to do a little housekeeping.\n\nDon't worry, this should only take a minute.",
+		title: 'Welcome to Harper',
+		lede: 'Harper checks your spelling and grammar in the apps you already write in.\n\nSetup takes about a minute.',
 	},
 	{
 		id: 'accessibility',
-		title: 'Accessibility',
-		lede: 'To be able to read and write text to your favorite text editors, you need to grant Harper the permission to do so.\n\nNone of your text will leave your device.',
+		title: 'Allow Accessibility access',
+		lede: 'Harper reads what you type so it can underline mistakes, and writes your fixes back. macOS asks you to allow this in Privacy & Security.\n\nYour writing never leaves this Mac.',
 	},
 	{
 		id: 'integration',
-		title: 'Enable TextEdit',
-		lede: 'The Harper community is constantly adding support for new text editors. If we haven\'t marked a text editor as "supported" already, you can override this option yourself.\n\nLet\'s try that now. Go ahead and enable "TextEdit". Once you do, Harper will start checking your grammar in that app.',
+		title: 'Turn on Harper in TextEdit',
+		lede: 'Harper checks only the apps you turn on. Start with TextEdit; you can add more apps later in Settings.',
 	},
 	{
 		id: 'test-drive',
-		title: 'Try Harper',
-		lede: 'Now that you\'ve enabled TextEdit, go ahead and open it. Write something like, "This is an test."\n\nYou should see Harper jump in to fix that mistake.',
+		title: 'Try it',
+		lede: 'Open TextEdit and type “This is an test.”\n\nHarper underlines the mistake. Click the underline to see the fix.',
 	},
 	{
 		id: 'ready',
-		title: 'Ready',
-		lede: "Okay! Now we're ready to go.\n\nDon't let your dreams be dreams. Write anything, anywhere and Harper will be there to catch your mistakes.",
+		title: 'You’re all set',
+		lede: 'Harper runs in the menu bar and checks your writing in the apps you turn on.\n\nYou can change apps, rules, and your dictionary anytime in Settings.',
 	},
 ];
 
@@ -57,6 +62,7 @@ let isLaunchingTextEdit = false;
 let testDriveError = '';
 let isCompletingOnboarding = false;
 let onboardingError = '';
+let permissionPoll: number | undefined;
 
 $: slides = allSlides.filter((slide) => slide.id !== 'accessibility' || isMacOS);
 $: textEditIntegration = integrations.find((item) => item.bundle_id === 'com.apple.TextEdit');
@@ -73,6 +79,51 @@ onMount(() => {
 	void prepareService();
 	void loadIntegrations();
 });
+
+onDestroy(() => window.clearInterval(permissionPoll));
+
+/** While this step waits for access, watch for it to be granted, so coming back from System
+ * Settings is enough, however the user got there; Check Again is only a fallback. */
+$: if (
+	slides[step]?.id === 'accessibility' &&
+	!accessibilityReady &&
+	accessibilityStatus === 'NotGranted'
+) {
+	startPermissionPoll();
+} else {
+	stopPermissionPoll();
+}
+
+function startPermissionPoll() {
+	if (permissionPoll !== undefined) return;
+	permissionPoll = window.setInterval(() => void checkPermissionGranted(), PERMISSION_POLL_MS);
+}
+
+/** A finished step removes its button; keep keyboard focus on the slide instead of losing it. */
+async function keepFocusOnSlide() {
+	await tick();
+	if (document.activeElement == null || document.activeElement === document.body) {
+		document.getElementById('step-heading')?.focus();
+	}
+}
+
+function stopPermissionPoll() {
+	window.clearInterval(permissionPoll);
+	permissionPoll = undefined;
+}
+
+async function checkPermissionGranted() {
+	if (isPreparingService) return;
+
+	try {
+		if ((await Client.getAccessibilityPermissionStatus()) === 'Granted') {
+			stopPermissionPoll();
+			await prepareService();
+		}
+	} catch {
+		// Keep waiting; Check Again stays available.
+	}
+}
 
 /** Gate service startup on Welcome outside macOS, or on Accessibility on macOS; the trial is optional. */
 function canAdvance(
@@ -111,6 +162,7 @@ async function enableTextEditForSetup() {
 			await Client.addIntegration('com.apple.TextEdit');
 		}
 		await loadIntegrations();
+		await keepFocusOnSlide();
 	} catch (error) {
 		integrationsError = `Unable to enable TextEdit: ${error}`;
 	} finally {
@@ -152,13 +204,14 @@ async function completeOnboarding() {
 async function prepareService(request = false) {
 	isPreparingService = true;
 	setupError = '';
-	accessibilityStatus = null;
+	// The last known status stays while checking, so the waiting message does not blink away.
 
 	try {
 		if (isMacOS) {
 			if (request) {
-				accessibilityStatus = await Client.requestAccessibilityPermission();
+				// Set first, so a request that times out still shows the waiting message.
 				hasRequestedAccessibility = true;
+				accessibilityStatus = await Client.requestAccessibilityPermission();
 			} else {
 				accessibilityStatus = await Client.getAccessibilityPermissionStatus();
 			}
@@ -174,6 +227,11 @@ async function prepareService(request = false) {
 		setupError = `Unable to ${isMacOS ? 'set up Accessibility' : 'start Harper'}: ${error}`;
 	} finally {
 		isPreparingService = false;
+	}
+
+	// Reactive values update after this function returns, so check the inputs directly.
+	if ((!isMacOS || accessibilityStatus === 'Granted') && !setupError) {
+		await keepFocusOnSlide();
 	}
 }
 </script>
@@ -192,92 +250,97 @@ async function prepareService(request = false) {
     {#if slides[step].id === 'welcome' && !isMacOS}
       {#if isPreparingService}
         <div class="onboarding-actions">
-          <p role="status">Starting Harper...</p>
+          <p class="onboarding-status waiting" role="status">
+            <span class="onboarding-spinner" aria-hidden="true"></span>Starting Harper…
+          </p>
         </div>
       {:else if setupError}
         <div class="onboarding-actions">
-          <p role="alert">{setupError}</p>
-          <Button on:click={() => prepareService()}>Retry Starting Harper</Button>
+          <p class="onboarding-status error" role="alert">{setupError}</p>
+          <Button on:click={() => prepareService()}>Try Again</Button>
         </div>
       {/if}
     {:else if slides[step].id === 'accessibility'}
       <div class="onboarding-actions">
-        <p role="status">
-          {#if isPreparingService}
-            Checking Accessibility access...
-          {:else if accessibilityReady}
-            Accessibility access granted. Harper is ready to check your writing.
-          {:else if accessibilityStatus === 'Unsupported'}
-            Accessibility setup is unavailable on this platform. Setup cannot continue here.
-          {:else if hasRequestedAccessibility && accessibilityStatus === 'NotGranted'}
-            Enable Harper in System Settings → Privacy &amp; Security → Accessibility, then recheck permission.
-          {/if}
-        </p>
-        {#if setupError}
-          <p role="alert">{setupError}</p>
+        {#if !accessibilityReady}
+          <Button
+            state={isPreparingService ? 'loading' : 'idle'}
+            disabled={accessibilityStatus === 'Unsupported'}
+            on:click={() => prepareService(!hasRequestedAccessibility && accessibilityStatus !== 'Granted')}
+          >
+            {hasRequestedAccessibility || accessibilityStatus === 'Granted' ? 'Check Again' : 'Open System Settings'}
+          </Button>
         {/if}
-        <Button
-          disabled={isPreparingService || accessibilityReady || accessibilityStatus === 'Unsupported'}
-          on:click={() => prepareService(!hasRequestedAccessibility && accessibilityStatus !== 'Granted')}
-        >
-          {#if isPreparingService}
-            Checking...
-          {:else if accessibilityReady}
-            Granted
-          {:else if accessibilityStatus === 'Unsupported'}
-            Unavailable
-          {:else if hasRequestedAccessibility || accessibilityStatus === 'Granted'}
-            Recheck Permission
-          {:else}
-            Open System Settings
-          {/if}
-        </Button>
+        {#if accessibilityReady}
+          <p class="onboarding-status done" role="status">
+            <CheckIcon className="settings-icon" />Harper can read and fix text in the apps you turn on.
+          </p>
+        {:else if accessibilityStatus === 'Unsupported'}
+          <p class="onboarding-status error" role="status">
+            Accessibility access isn’t available on this system, so setup can’t continue.
+          </p>
+        {:else if hasRequestedAccessibility && accessibilityStatus === 'NotGranted'}
+          <p class="onboarding-status waiting" role="status">
+            <span class="onboarding-spinner" aria-hidden="true"></span>
+            <span>
+              Waiting for access. In System Settings, open Privacy &amp; Security › Accessibility and
+              turn on Harper. This page updates on its own.
+            </span>
+          </p>
+        {:else}
+          <p class="onboarding-status" role="status"></p>
+        {/if}
+        {#if setupError}
+          <p class="onboarding-status error" role="alert">{setupError}</p>
+        {/if}
       </div>
     {:else if slides[step].id === 'integration'}
       <div class="onboarding-actions">
-        <p role="status">
-          {#if isLoadingIntegrations}
-            Loading integration state...
-          {:else if isEnablingTextEdit}
-            Enabling TextEdit...
-          {:else if integrationReady}
-            TextEdit enabled. Harper will check your writing in this app.
-          {/if}
-        </p>
-        {#if integrationsError}
-          <p role="alert">{integrationsError}</p>
-          <Button color="light" disabled={isLoadingIntegrations || isEnablingTextEdit} on:click={loadIntegrations}>
-            Retry Loading Integrations
-          </Button>
-        {/if}
         <div class="onboarding-app">
-          <Button
-            disabled={!accessibilityReady || isLoadingIntegrations || isEnablingTextEdit || isTextEditEnabled || !!integrationsError}
-            on:click={enableTextEditForSetup}
-          >
-            {isEnablingTextEdit ? 'Enabling...' : isTextEditEnabled ? 'Enabled' : 'Enable TextEdit'}
-          </Button>
           <AppIcon bundleId="com.apple.TextEdit" name="TextEdit" />
           <strong>TextEdit</strong>
+          {#if !isTextEditEnabled}
+            <Button
+              state={isEnablingTextEdit ? 'loading' : 'idle'}
+              disabled={!accessibilityReady || isLoadingIntegrations || !!integrationsError}
+              on:click={enableTextEditForSetup}
+            >
+              Turn On
+            </Button>
+          {/if}
         </div>
+        {#if integrationsError}
+          <p class="onboarding-status error" role="alert">{integrationsError}</p>
+          <Button color="light" disabled={isLoadingIntegrations || isEnablingTextEdit} on:click={loadIntegrations}>
+            Try Again
+          </Button>
+        {:else if integrationReady}
+          <p class="onboarding-status done" role="status">
+            <CheckIcon className="settings-icon" />Harper will check your writing in TextEdit.
+          </p>
+        {/if}
       </div>
     {:else if slides[step].id === 'test-drive'}
       <div class="onboarding-actions">
-        {#if testDriveError}
-          <p role="alert">{testDriveError}</p>
-        {/if}
-        <Button disabled={isLaunchingTextEdit} on:click={launchTextEditForTestDrive}>
-          {isLaunchingTextEdit ? 'Launching...' : 'Launch TextEdit'}
+        <Button state={isLaunchingTextEdit ? 'loading' : 'idle'} on:click={launchTextEditForTestDrive}>
+          Open TextEdit
         </Button>
+        {#if testDriveError}
+          <p class="onboarding-status error" role="alert">{testDriveError}</p>
+        {/if}
       </div>
     {:else if slides[step].id === 'ready'}
       <div class="onboarding-actions">
-        {#if onboardingError}
-          <p role="alert">{onboardingError}</p>
-        {/if}
-        <Button disabled={isCompletingOnboarding || !accessibilityReady || !integrationReady} on:click={completeOnboarding}>
-          {isCompletingOnboarding ? 'Finishing...' : 'Finish'}
+        <Button
+          state={isCompletingOnboarding ? 'loading' : 'idle'}
+          disabled={!accessibilityReady || !integrationReady}
+          on:click={completeOnboarding}
+        >
+          Start Writing
         </Button>
+        {#if onboardingError}
+          <p class="onboarding-status error" role="alert">{onboardingError}</p>
+        {/if}
       </div>
     {/if}
   </SlideDeck>

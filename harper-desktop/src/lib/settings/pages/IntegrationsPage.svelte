@@ -1,15 +1,8 @@
+<!-- Modified in this fork (taehee-pd/harperSwift): titled Apps, macOS-style list and switches,
+     the Add App sheet closes as soon as an app is picked, and focus returns to Add App…. -->
 <script lang="ts">
-import {
-	Button,
-	Checkbox,
-	CheckIcon,
-	IconButton,
-	Panel,
-	SettingRow,
-	Toggle,
-	TrashIcon,
-} from 'components';
-import { onMount } from 'svelte';
+import { CloseIcon, IconButton, Toggle } from 'components';
+import { onMount, tick } from 'svelte';
 import { Client, type Integration } from '$lib/client';
 import AppIcon from '../components/AppIcon.svelte';
 import AppPickerModal from '../components/AppPickerModal.svelte';
@@ -28,7 +21,7 @@ let isAutoEnableLoading = true;
 let isAutoEnableSaving = false;
 let autoEnableError = '';
 let appPickerOpen = false;
-let newBundleId = '';
+let addAppButton: HTMLButtonElement;
 
 $: existingBundleIds = integrations.map((integration) => integration.bundle_id);
 
@@ -158,7 +151,6 @@ async function addIntegration(bundleId: string) {
 	try {
 		await Client.addIntegration(trimmedBundleId);
 		await loadIntegrations();
-		closeAppPicker();
 	} catch (error) {
 		integrations = previousIntegrations;
 		integrationApps = previousIntegrationApps;
@@ -168,102 +160,98 @@ async function addIntegration(bundleId: string) {
 	}
 }
 
-function closeAppPicker() {
+async function closeAppPicker() {
 	appPickerOpen = false;
-	newBundleId = '';
+	// Return focus to the button that opened the sheet.
+	await tick();
+	addAppButton?.focus();
 }
 </script>
 
 <section>
-  <div class="stanza">
-    <div class="eyebrow">Selected apps</div>
-    <p class="section-copy">Harper will only watch the apps you enable here.</p>
+  <header class="page-header">
+    <h1>Apps</h1>
+    <p class="page-lede">Harper checks your writing only in the apps turned on here.</p>
+  </header>
 
-    {#if isIntegrationsLoading}
-      <p class="result-summary">Loading integrations...</p>
-    {:else if integrationsError}
-      <p class="result-summary">{integrationsError}</p>
-    {:else if isIntegrationsSaving}
-      <p class="result-summary">Saving integrations...</p>
-    {/if}
-
-    <Panel>
-      {#if !isIntegrationsLoading && integrationApps.length === 0}
-        <div class="empty">No configured app integrations.</div>
+  <div class="form-section">
+    <div class="form-group" style="--row-inset: 54px">
+      {#if isIntegrationsLoading && integrationApps.length === 0}
+        <div class="empty" role="status">Loading…</div>
+      {:else if integrationApps.length === 0}
+        <div class="empty">
+          <strong>No apps yet</strong>
+          Add an app to have Harper check your writing in it.
+        </div>
       {:else}
-        {#each integrationApps as app}
-          <div class="app-row">
+        {#each integrationApps as app (app.bundle_id)}
+          <div class="list-row app">
             <AppIcon bundleId={app.bundle_id} name={app.name} />
             <div class="grow">
-              <strong>{app.name}</strong>
-              <p>{app.bundle_id}</p>
+              <span class="app-name" id={`app-${app.bundle_id}`}>{app.name}</span>
+              <span class="app-bundle">{app.bundle_id}</span>
             </div>
             <IconButton
               danger
               disabled={isIntegrationsLoading || isIntegrationsSaving}
               aria-label={`Remove ${app.name}`}
+              title="Remove from the list"
               on:click={() => removeIntegration(app.bundle_id)}
             >
-              <TrashIcon className="control-icon" />
+              <CloseIcon className="control-icon" />
             </IconButton>
             <Toggle
               appearance="settings"
               checked={app.enabled}
               disabled={isIntegrationsLoading || isIntegrationsSaving}
-              aria-label={`Toggle ${app.name}`}
+              aria-labelledby={`app-${app.bundle_id}`}
               on:click={() => setIntegrationEnabled(app.bundle_id, !app.enabled)}
             />
           </div>
         {/each}
       {/if}
-    </Panel>
+    </div>
+    {#if integrationsError}
+      <p class="form-error" role="alert">{integrationsError}</p>
+    {/if}
 
     <div class="actions-row">
-      <Button
-        unstyled
+      <button
+        bind:this={addAppButton}
         class="button"
         type="button"
-        disabled={isIntegrationsLoading || isIntegrationsSaving}
+        disabled={isIntegrationsLoading}
         on:click={() => (appPickerOpen = true)}
-      >Add application...</Button>
-      <span class="muted">Choose any app from your Applications folder.</span>
+      >Add App…</button>
     </div>
   </div>
 
-  <div class="divider"></div>
-
-  <div class="stanza">
-    <div class="eyebrow">New apps</div>
-    <SettingRow top>
-      <strong>Enable new apps automatically</strong>
-      <p>Automatically add and enable new apps when Harper encounters them. Disabled apps stay disabled; removed apps can be added again.</p>
-      <Checkbox
-        slot="control"
-        appearance="settings"
-        checked={autoEnableNewApps}
-        disabled={isAutoEnableLoading || isAutoEnableSaving}
-        aria-label="Enable new apps automatically"
-        on:click={() => setAutoEnableNewApps(!autoEnableNewApps)}
-      >
-        {#if autoEnableNewApps}<CheckIcon className="control-icon" />{/if}
-      </Checkbox>
-    </SettingRow>
+  <div class="form-section">
+    <h2 class="form-section-title">New apps</h2>
+    <div class="form-group">
+      <div class="form-row">
+        <div class="form-row-text">
+          <span class="form-row-label" id="auto-enable-label">Turn on new apps automatically</span>
+          <p class="form-row-detail">
+            When you write in a new app, Harper adds it here and turns it on. Apps you turned off
+            stay off.
+          </p>
+        </div>
+        <Toggle
+          appearance="settings"
+          checked={autoEnableNewApps}
+          disabled={isAutoEnableLoading || isAutoEnableSaving}
+          aria-labelledby="auto-enable-label"
+          on:click={() => setAutoEnableNewApps(!autoEnableNewApps)}
+        />
+      </div>
+    </div>
     {#if autoEnableError}
-      <p class="result-summary" role="alert">{autoEnableError}</p>
-    {:else if isAutoEnableLoading}
-      <p class="result-summary">Loading automatic app enablement...</p>
-    {:else if isAutoEnableSaving}
-      <p class="result-summary">Saving automatic app enablement...</p>
+      <p class="form-error" role="alert">{autoEnableError}</p>
     {/if}
   </div>
 </section>
 
 {#if appPickerOpen}
-  <AppPickerModal
-    bind:bundleId={newBundleId}
-    {existingBundleIds}
-    isSaving={isIntegrationsSaving}
-    close={closeAppPicker}
-    add={addIntegration}
-  />
+  <AppPickerModal {existingBundleIds} close={closeAppPicker} add={addIntegration} />
 {/if}
