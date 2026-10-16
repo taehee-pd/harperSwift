@@ -3,7 +3,7 @@
 <script lang="ts">
 import { isTauri } from '@tauri-apps/api/core';
 import { platform } from '@tauri-apps/plugin-os';
-import { Checkbox, CheckIcon, SettingRow } from 'components';
+import { Toggle } from 'components';
 import { onMount } from 'svelte';
 import { type ClaritySettings, Client } from '$lib/client';
 
@@ -15,7 +15,10 @@ const isMacOS = isTauri() && platform() === 'macos';
 
 let settings: ClaritySettings | null = null;
 let isSaving = false;
-let error = '';
+let loadError = '';
+let saveError = '';
+/** Bumped by every save, so a status read that started before it cannot undo the switch. */
+let saveCount = 0;
 
 onMount(() => {
 	if (!isMacOS) {
@@ -32,12 +35,27 @@ onMount(() => {
 	return () => window.clearInterval(interval);
 });
 
+/** The status starts with its state ("Ready: ...", "Paused: ..."); the dot shows that state while
+ * Clarity is on. */
+$: statusTone = !settings?.enabled
+	? ''
+	: settings.status.startsWith('Ready')
+		? 'ready'
+		: settings?.status.startsWith('Paused')
+			? 'paused'
+			: '';
+
 async function load() {
+	const startedAt = saveCount;
+
 	try {
-		settings = await Client.getClaritySettings();
-		error = '';
-	} catch (loadError) {
-		error = `Unable to load Clarity settings: ${loadError}`;
+		const loaded = await Client.getClaritySettings();
+		if (startedAt === saveCount) {
+			settings = loaded;
+			loadError = '';
+		}
+	} catch (error) {
+		loadError = `Unable to load Clarity settings: ${error}`;
 	}
 }
 
@@ -48,14 +66,15 @@ async function setEnabled(enabled: boolean) {
 
 	const previous = settings;
 	settings = { ...settings, enabled };
+	saveCount += 1;
 	isSaving = true;
-	error = '';
+	saveError = '';
 
 	try {
 		await Client.setClarityEnabled(enabled);
-	} catch (saveError) {
+	} catch (error) {
 		settings = previous;
-		error = `Unable to save Clarity setting: ${saveError}`;
+		saveError = `Unable to save Clarity setting: ${error}`;
 	} finally {
 		isSaving = false;
 	}
@@ -63,35 +82,32 @@ async function setEnabled(enabled: boolean) {
 </script>
 
 {#if isMacOS}
-  <div class="divider"></div>
-
-  <div class="stanza">
-    <div class="eyebrow">Clarity</div>
-    <div class="rows">
-      <SettingRow top>
-        <strong>Clarity suggestions</strong>
-        <p>
-          Apple Intelligence suggests clearer, shorter wording for sentences that have no spelling or
-          grammar issues. Suggestions are made on this Mac; your text never leaves it.
-        </p>
-        <p class="result-summary">{settings?.status ?? 'Loading status...'}</p>
-        <Checkbox
-          slot="control"
+  <div class="form-section">
+    <h2 class="form-section-title">Apple Intelligence</h2>
+    <div class="form-group">
+      <div class="form-row">
+        <div class="form-row-text">
+          <span class="form-row-label" id="clarity-label">Clarity suggestions</span>
+          <p class="form-row-detail">
+            Suggests clearer, shorter wording for sentences that have no spelling or grammar issues.
+            Suggestions are made on this Mac; your text never leaves it.
+          </p>
+          <p class="status-line">
+            <span class={`status-dot ${statusTone}`} aria-hidden="true"></span>
+            {settings?.status ?? 'Checking…'}
+          </p>
+        </div>
+        <Toggle
           appearance="settings"
           checked={settings != null && settings.enabled && settings.available}
           disabled={settings == null || !settings.available || isSaving}
+          aria-labelledby="clarity-label"
           on:click={() => settings && setEnabled(!settings.enabled)}
-        >
-          {#if settings != null && settings.enabled && settings.available}<CheckIcon
-              className="control-icon"
-            />{/if}
-        </Checkbox>
-      </SettingRow>
+        />
+      </div>
     </div>
-    {#if error}
-      <p class="result-summary">{error}</p>
-    {:else if isSaving}
-      <p class="result-summary">Saving Clarity setting...</p>
+    {#if saveError || loadError}
+      <p class="form-error" role="alert">{saveError || loadError}</p>
     {/if}
   </div>
 {/if}

@@ -1,4 +1,5 @@
-// Modified in this fork (taehee-pd/harperSwift): adds the Clarity settings calls (macOS only).
+// Modified in this fork (taehee-pd/harperSwift): adds the Clarity settings calls (macOS only) and
+// the rule descriptions shown on the Rules page.
 
 import { invoke } from '@tauri-apps/api/core';
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
@@ -86,6 +87,13 @@ export class Client {
 		await configLinter.setLintConfigWithJSON(JSON.stringify(await Client.getLintConfig()));
 
 		return JSON.parse(await configLinter.getStructuredLintConfigJSON()) as StructuredLintConfig;
+	}
+
+	/** What each rule checks, keyed by rule name. The text is Markdown. */
+	static async getLintDescriptions(): Promise<Record<string, string>> {
+		const configLinter = await getConfigLinter();
+
+		return await configLinter.getLintDescriptions();
 	}
 
 	static async getDialect(): Promise<Dialect> {

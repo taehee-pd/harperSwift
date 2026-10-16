@@ -65,8 +65,8 @@ struct ClarityCard: View {
                 Spacer(minLength: 8)
 
                 // Changes a setting rather than this one suggestion, so it sits apart.
-                Button("Turn off Clarity suggestions") { onAction(.turnOffClarity) }
-                    .help("You can turn them back on in Harper\u{2019}s settings")
+                Button("Turn Off Clarity") { onAction(.turnOffClarity) }
+                    .help("You can turn it back on in Harper\u{2019}s settings")
             }
             .footerButtonStyle()
             .padding(Metrics.cornerInset)

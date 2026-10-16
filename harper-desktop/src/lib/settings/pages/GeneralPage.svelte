@@ -1,6 +1,8 @@
-<!-- Modified in this fork (taehee-pd/harperSwift): adds the Clarity settings section on macOS. -->
+<!-- Modified in this fork (taehee-pd/harperSwift): adds the Clarity settings section on macOS, and
+     redesigns the page as grouped macOS sections with switches. The menu bar checkbox, which did
+     nothing yet, is gone, and saving no longer shows status text. -->
 <script lang="ts">
-import { Button, Checkbox, CheckIcon, Input, Select, SettingRow } from 'components';
+import { Button, Input, Select, Toggle } from 'components';
 import type { Dialect } from 'harper.js';
 import { onMount } from 'svelte';
 import { Client } from '$lib/client';
@@ -15,7 +17,6 @@ const DialectValue = {
 	Indian: 4,
 } as const;
 
-let menuBar = true;
 let launchAtStartup = false;
 let autoUpdate = true;
 let dialect = 'american';
@@ -181,11 +182,15 @@ async function loadUpdateVersions() {
 async function checkForUpdates() {
 	isCheckingForUpdates = true;
 	autoUpdateError = '';
-	updateStatus = 'Checking for updates...';
+	updateStatus = '';
 
 	try {
 		const result = await Client.updateToLatest();
-		updateStatus = result.message;
+		if (result.status === 'error') {
+			autoUpdateError = result.message;
+		} else {
+			updateStatus = result.message;
+		}
 
 		if (result.latestVersion != null) {
 			latestVersion = result.latestVersion;
@@ -215,6 +220,12 @@ async function loadDebounceMs() {
 }
 
 async function saveDebounceMs() {
+	// An emptied field means "never mind", not 0 ms.
+	if (String(debounceMsInput ?? '').trim() === '') {
+		debounceMsInput = String(debounceMs);
+		return;
+	}
+
 	const parsedDebounceMs = Number(debounceMsInput);
 
 	if (!Number.isInteger(parsedDebounceMs) || parsedDebounceMs < 0) {
@@ -239,6 +250,18 @@ async function saveDebounceMs() {
 		isDebounceSaving = false;
 	}
 }
+
+/** One line under the version: the last check's result, or whether a newer version exists. */
+$: updateSummary = isCheckingForUpdates
+	? 'Looking for a newer version…'
+	: autoUpdateError
+		? ''
+		: updateStatus ||
+			(latestVersion && currentVersion && latestVersion !== currentVersion
+				? `Version ${latestVersion} is available.`
+				: latestVersion
+					? 'Harper is up to date.'
+					: '');
 
 function dialectToSettingsValue(dialect: Dialect): string {
 	switch (dialect) {
@@ -272,145 +295,117 @@ function settingsValueToDialect(value: string): Dialect {
 </script>
 
 <section>
-        <div class="stanza">
-          <div class="eyebrow">General</div>
-          <div class="rows">
-            <SettingRow top>
-              <strong>Keep Harper in the menu bar</strong>
-              <p>Shows the Harper icon so you can open settings without opening the main app.</p>
-              <Checkbox
-                slot="control"
-                appearance="settings"
-                checked={menuBar}
-                disabled
-                title="Not wired yet"
-              >
-                {#if menuBar}<CheckIcon className="control-icon" />{/if}
-              </Checkbox>
-            </SettingRow>
+  <header class="page-header">
+    <h1>General</h1>
+  </header>
 
-            <SettingRow>
-              <strong>Launch Harper at startup</strong>
-              <p>Harper will start silently when you log in.</p>
-              <Checkbox
-                slot="control"
-                appearance="settings"
-                checked={launchAtStartup}
-                disabled={isLaunchAtStartupLoading || isLaunchAtStartupSaving}
-                on:click={() => setLaunchAtStartup(!launchAtStartup)}
-              >
-                {#if launchAtStartup}<CheckIcon className="control-icon" />{/if}
-              </Checkbox>
-            </SettingRow>
-            {#if isLaunchAtStartupLoading}
-              <p class="result-summary">Loading startup setting...</p>
-            {:else if launchAtStartupError}
-              <p class="result-summary">{launchAtStartupError}</p>
-            {:else if isLaunchAtStartupSaving}
-              <p class="result-summary">Saving startup setting...</p>
-            {/if}
-
-            <SettingRow top>
-              <strong>Automatically check for updates</strong>
-              <p>Harper will check for new versions daily.</p>
-              <p class="result-summary">
-                Current version: {currentVersion || 'loading...'} · Latest version: {latestVersion || 'loading...'}
-              </p>
-              <Checkbox
-                slot="control"
-                appearance="settings"
-                checked={autoUpdate}
-                disabled={isAutoUpdateLoading || isAutoUpdateSaving}
-                on:click={() => setAutoUpdate(!autoUpdate)}
-              >
-                {#if autoUpdate}<CheckIcon className="control-icon" />{/if}
-              </Checkbox>
-            </SettingRow>
-            <div class="inline-row">
-              <Button
-                unstyled
-                class="button"
-                type="button"
-                disabled={isCheckingForUpdates}
-                on:click={checkForUpdates}
-              >
-                {isCheckingForUpdates ? 'Checking...' : 'Check for updates'}
-              </Button>
-            </div>
-            {#if isAutoUpdateLoading}
-              <p class="result-summary">Loading update setting...</p>
-            {:else if autoUpdateError}
-              <p class="result-summary">{autoUpdateError}</p>
-            {:else if isAutoUpdateSaving}
-              <p class="result-summary">Saving update setting...</p>
-            {:else if updateStatus}
-              <p class="result-summary">{updateStatus}</p>
-            {/if}
-          </div>
+  <div class="form-section">
+    <h2 class="form-section-title">Writing</h2>
+    <div class="form-group">
+      <div class="form-row">
+        <div class="form-row-text">
+          <label class="form-row-label" for="dialect">English dialect</label>
+          <p class="form-row-detail">Harper checks spelling and grammar for this variety of English.</p>
         </div>
+        <Select
+          unstyled
+          id="dialect"
+          class="select"
+          disabled={isDialectLoading || isDialectSaving}
+          bind:value={dialect}
+          on:change={(event) => setDialect((event.detail.currentTarget as HTMLSelectElement).value)}
+        >
+          {#each DIALECT_OPTIONS as option}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </Select>
+      </div>
 
-        <div class="divider"></div>
-
-        <div class="stanza">
-          <div class="eyebrow">Language</div>
-          <p class="section-copy">
-            Choose the dialect Harper uses to check spelling and grammar.
+      <div class="form-row">
+        <div class="form-row-text">
+          <label class="form-row-label" for="debounce-ms">Wait after typing</label>
+          <p class="form-row-detail">
+            How long Harper waits after you stop typing. Use 0 to check right away.
           </p>
-          <div class="inline-row">
-            <label for="dialect">English dialect:</label>
-            <Select
-              unstyled
-              id="dialect"
-              class="select wide"
-              disabled={isDialectLoading || isDialectSaving}
-              bind:value={dialect}
-              on:change={(event) => setDialect((event.detail.currentTarget as HTMLSelectElement).value)}
-            >
-              {#each DIALECT_OPTIONS as option}
-                <option value={option.value}>{option.label}</option>
-              {/each}
-            </Select>
-          </div>
-          {#if isDialectLoading}
-            <p class="result-summary">Loading dialect...</p>
-          {:else if dialectError}
-            <p class="result-summary">{dialectError}</p>
-          {:else if isDialectSaving}
-            <p class="result-summary">Saving dialect...</p>
-          {/if}
         </div>
+        <span class="number-field">
+          <Input
+            unstyled
+            id="debounce-ms"
+            class="text-field"
+            type="number"
+            min="0"
+            step="50"
+            disabled={isDebounceLoading || isDebounceSaving}
+            bind:value={debounceMsInput}
+            on:change={saveDebounceMs}
+          />
+          ms
+        </span>
+      </div>
+    </div>
+    {#if dialectError}
+      <p class="form-error" role="alert">{dialectError}</p>
+    {/if}
+    {#if debounceError}
+      <p class="form-error" role="alert">{debounceError}</p>
+    {/if}
+  </div>
 
-        <div class="divider"></div>
+  <ClaritySettings />
 
-        <div class="stanza">
-          <div class="eyebrow">Writing</div>
-          <p class="section-copy">
-            Choose how long Harper waits after text changes before checking it. Use 0 ms for
-            immediate checking.
-          </p>
-          <div class="inline-row">
-            <label for="debounce-ms">Debounce delay:</label>
-            <Input
-              unstyled
-              id="debounce-ms"
-              class="select"
-              type="number"
-              min="0"
-              step="50"
-              disabled={isDebounceLoading || isDebounceSaving}
-              bind:value={debounceMsInput}
-              on:change={saveDebounceMs}
-            />
-            <span>ms</span>
-          </div>
-          {#if isDebounceLoading}
-            <p class="result-summary">Loading debounce delay...</p>
-          {:else if debounceError}
-            <p class="result-summary">{debounceError}</p>
-          {:else if isDebounceSaving}
-            <p class="result-summary">Saving debounce delay...</p>
-          {/if}
+  <div class="form-section">
+    <h2 class="form-section-title">Startup and updates</h2>
+    <div class="form-group">
+      <div class="form-row">
+        <div class="form-row-text">
+          <span class="form-row-label" id="launch-at-startup-label">Open at login</span>
+          <p class="form-row-detail">Harper starts quietly in the menu bar when you log in.</p>
         </div>
+        <Toggle
+          appearance="settings"
+          checked={launchAtStartup}
+          disabled={isLaunchAtStartupLoading || isLaunchAtStartupSaving}
+          aria-labelledby="launch-at-startup-label"
+          on:click={() => setLaunchAtStartup(!launchAtStartup)}
+        />
+      </div>
 
-        <ClaritySettings />
-      </section>
+      <div class="form-row">
+        <div class="form-row-text">
+          <span class="form-row-label" id="auto-update-label">Check for updates automatically</span>
+          <p class="form-row-detail">Harper looks for a new version once a day.</p>
+        </div>
+        <Toggle
+          appearance="settings"
+          checked={autoUpdate}
+          disabled={isAutoUpdateLoading || isAutoUpdateSaving}
+          aria-labelledby="auto-update-label"
+          on:click={() => setAutoUpdate(!autoUpdate)}
+        />
+      </div>
+
+      <div class="form-row">
+        <div class="form-row-text">
+          <span class="form-row-label">Version {currentVersion || '…'}</span>
+          <p class="form-row-detail" role="status">{updateSummary}</p>
+        </div>
+        <Button
+          unstyled
+          class="button"
+          type="button"
+          state={isCheckingForUpdates ? 'loading' : 'idle'}
+          on:click={checkForUpdates}
+        >
+          {isCheckingForUpdates ? 'Checking…' : 'Check Now'}
+        </Button>
+      </div>
+    </div>
+    {#if launchAtStartupError}
+      <p class="form-error" role="alert">{launchAtStartupError}</p>
+    {/if}
+    {#if autoUpdateError}
+      <p class="form-error" role="alert">{autoUpdateError}</p>
+    {/if}
+  </div>
+</section>

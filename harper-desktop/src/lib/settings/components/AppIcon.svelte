@@ -1,3 +1,4 @@
+<!-- Modified in this fork (taehee-pd/harperSwift): no tinted tile behind a real app icon. -->
 <script lang="ts">
 import { onDestroy, onMount } from 'svelte';
 import { Client } from '$lib/client';
@@ -66,7 +67,13 @@ function fallbackInitial(value: string) {
 }
 </script>
 
-<div bind:this={element} class={`app-icon ${className}`} style="--app-tint: #6b6f78" aria-hidden="true">
+<div
+  bind:this={element}
+  class={`app-icon ${className}`}
+  class:has-image={iconDataUrl !== ''}
+  style="--app-tint: #8e8a83"
+  aria-hidden="true"
+>
   {#if iconDataUrl}
     <img src={iconDataUrl} alt="" />
   {:else}
