@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use tokio::sync::Mutex;
 
-use super::{param, reply};
+use super::{change, param, reply};
 use crate::PlatformBroker;
 use crate::clarity::settings::ClaritySettingsView;
 use crate::config::Config;
@@ -183,16 +183,6 @@ pub async fn handle(
         ),
         _ => None,
     }
-}
-
-/// Applies `edit` to the shared config and saves it.
-async fn change(config: &SharedConfig, edit: impl FnOnce(&mut Config)) -> Result<(), String> {
-    let mut config = config.lock().await;
-    edit(&mut config);
-    config
-        .save_to_system()
-        .await
-        .map_err(|error| error.to_string())
 }
 
 #[derive(Serialize)]

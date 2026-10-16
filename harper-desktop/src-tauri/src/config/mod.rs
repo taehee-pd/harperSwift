@@ -1,5 +1,6 @@
 // Modified in this fork (taehee-pd/harperSwift): saves the Clarity setting on macOS
-// (`clarity/settings.rs`).
+// (`clarity/settings.rs`), and `Config` is `Clone` so native Settings can undo a change that
+// fails to save (`native_ui/settings.rs`).
 
 mod error;
 mod integration;
@@ -17,6 +18,7 @@ use serde::de::{DeserializeOwned, Error as _};
 use std::{fs, io, path::PathBuf, sync::Arc};
 
 /// User-controlled app state needed by Tauri commands and the highlighter process.
+#[derive(Clone)]
 pub struct Config {
     pub mutable_dictionary: MutableDictionary,
     pub dialect: Dialect,

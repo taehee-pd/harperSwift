@@ -18,6 +18,9 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tauri::AppHandle;
+use tokio::sync::Mutex;
+
+use crate::config::Config;
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
@@ -81,6 +84,19 @@ async fn handle(app: &AppHandle, method: &str, params: &Value) -> Result<Value, 
         return reply;
     }
     Err(format!("Unknown request: {method}"))
+}
+
+/// Applies `edit` to the shared config and saves it. When saving fails, the config is put back:
+/// the window shows the change as not made, so the highlighter must not keep using it either.
+async fn change(config: &Mutex<Config>, edit: impl FnOnce(&mut Config)) -> Result<(), String> {
+    let mut config = config.lock().await;
+    let previous = config.clone();
+    edit(&mut config);
+    if let Err(error) = config.save_to_system().await {
+        *config = previous;
+        return Err(error.to_string());
+    }
+    Ok(())
 }
 
 /// Reads one named parameter.

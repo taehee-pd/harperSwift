@@ -17,7 +17,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 
-use super::{param, reply};
+use super::{change, param, reply};
 use crate::config::Config;
 use crate::rect::{ActionableLint, Rect};
 
@@ -39,12 +39,10 @@ pub async fn handle(
             reply(
                 async {
                     let rule = rule?;
-                    let mut config = config.lock().await;
-                    config.lint_config.set_rule_enabled(rule, false);
-                    config
-                        .save_to_system()
-                        .await
-                        .map_err(|error| error.to_string())
+                    change(&config, |config| {
+                        config.lint_config.set_rule_enabled(rule, false);
+                    })
+                    .await
                 }
                 .await,
             )
@@ -229,12 +227,7 @@ async fn ignore(config: &SharedConfig, params: &Value, all: bool) -> Result<(), 
     })
     .await?;
 
-    let mut config = config.lock().await;
-    config.ignored_lints.append(ignored);
-    config
-        .save_to_system()
-        .await
-        .map_err(|error| error.to_string())
+    change(config, |config| config.ignored_lints.append(ignored)).await
 }
 
 /// UTF-16 offset of every character index in `text`, plus one past the end.

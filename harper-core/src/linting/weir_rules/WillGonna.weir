@@ -1,14 +1,36 @@
-expr main [(will gonna), (will going to)]
+# Modified in this fork (taehee-pd/harperSwift): `will` must follow its subject. In questions
+# such as `Will going to the doctor help?` or `What will going to college teach me?`, the gerund
+# `going to ...` is the subject, so nothing is redundant.
+expr redundant [(will gonna), (will going to)]
+expr notSubject [what, who, whom, which, whose, why, how, where, when, the, a, an, her, his, its, my, your, our, their]
+expr main <(!@notSubject @redundant), ([NOUN, PRON, PROPN] @redundant), @redundant>
 
 let message "`Will` already marks the future, so `gonna` or `going to` is redundant here."
 let description "Corrects the redundant `will gonna` and `will going to` to `will`."
 let kind "Redundancy"
 let becomes "will"
 
+# True positives
 test "If it was urlencoded to put '%7c' instead of '|', it will gonna be ok." "If it was urlencoded to put '%7c' instead of '|', it will be ok."
 test "When I change my category it will gonna submit my query instantly." "When I change my category it will submit my query instantly."
 test "so once you press on the text/button near it, the app will gonna open the tab" "so once you press on the text/button near it, the app will open the tab"
 test "We will going to develop multiple long running workflow for employees to request a vacation" "We will develop multiple long running workflow for employees to request a vacation"
 test "on launch time it will going to crash" "on launch time it will crash"
+test "Sarah will gonna call you later." "Sarah will call you later."
+test "The server will going to restart at midnight." "The server will restart at midnight."
+test "They will gonna love it!" "They will love it!"
+test "I think she will going to win, but I'm not sure." "I think she will win, but I'm not sure."
+test "THE BUILD WILL GONNA FAIL." "THE BUILD WILL FAIL."
+test "You Will Going To Like This" "You Will Like This"
+
+# False positives / true negatives
 allows "It is going to rain, and it will rain tomorrow too."
 allows "I'm gonna say it will work."
+allows "Will going to the doctor help?"
+allows "will going to bed early fix my sleep?"
+allows "And will going to the gym every day really help?"
+allows "Will gonna be accepted in formal writing?"
+allows "The will going to probate surprised the family."
+allows "What will going to college teach me?"
+allows "We will be going to the park tomorrow."
+allows "She will keep going to class."
