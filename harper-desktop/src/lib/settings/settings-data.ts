@@ -1,5 +1,3 @@
-// Modified in this fork (taehee-pd/harperSwift): the Integrations section is labeled Apps.
-
 export type SectionId =
 	| 'general'
 	| 'writing'
@@ -34,7 +32,7 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
 	},
 	{
 		id: 'integrations',
-		label: 'Apps',
+		label: 'Integrations',
 		gradient: 'linear-gradient(180deg, #6b6f78 0%, #3b3f48 100%)',
 	},
 ];

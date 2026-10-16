@@ -26,6 +26,8 @@ Never commit the private key.
    ```
 
    It builds the app and dmg (signed ad hoc), signs the update archive with your key, and writes everything, including `latest.json`, to `src-tauri/target/aarch64-apple-darwin/release/bundle/release/`.
+
+   The macOS app has no web UI: Settings, the first-run setup and the editor are SwiftUI windows, and `src-tauri/tauri.macos.conf.json` embeds a placeholder page instead of the Svelte app. The script therefore skips harper.js, the wasm build and the other web packages.
 3. Create the GitHub release with the tag `v<version>` on that commit and upload all four files.
 
 ## Opening a downloaded build

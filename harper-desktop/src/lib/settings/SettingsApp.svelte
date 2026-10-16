@@ -1,5 +1,3 @@
-<!-- Modified in this fork (taehee-pd/harperSwift): Integrations is titled Apps, the loading state
-     is announced without flashing text, and switches do not animate while a page loads. -->
 <script lang="ts">
 import { onMount } from 'svelte';
 import { Client } from '$lib/client';
@@ -20,9 +18,6 @@ let active: SectionId = 'general';
 let contentEl: HTMLElement;
 let isLoadingOnboarding = true;
 let onboardingCompleted = false;
-/** True while a page loads its values, so switches jump to them instead of animating. */
-let isSettling = true;
-let settleTimer: number | undefined;
 
 const titleMap: Record<SectionId, string> = {
 	general: 'General',
@@ -31,7 +26,7 @@ const titleMap: Record<SectionId, string> = {
 	shortcuts: 'Shortcuts',
 	rules: 'Rules',
 	weirpacks: 'Weirpacks',
-	integrations: 'Apps',
+	integrations: 'Integrations',
 	about: 'About',
 };
 
@@ -53,18 +48,13 @@ $: title = titleMap[active];
 
 $: if (contentEl && active) {
 	contentEl.scrollTop = 0;
-	isSettling = true;
-	window.clearTimeout(settleTimer);
-	settleTimer = window.setTimeout(() => {
-		isSettling = false;
-	}, 400);
 }
 </script>
 
 {#if isLoadingOnboarding}
   <div class="settings-shell">
     <main class="content" aria-label="Settings">
-      <p class="sr-only" role="status">Loading settings…</p>
+      <p role="status">Loading settings...</p>
     </main>
   </div>
 {:else if !onboardingCompleted}
@@ -73,7 +63,7 @@ $: if (contentEl && active) {
   <div class="settings-shell">
     <SettingsSidebar bind:active />
 
-    <main bind:this={contentEl} class="content" class:settling={isSettling} aria-label={title}>
+    <main bind:this={contentEl} class="content" aria-label={title}>
       {#if active === "general"}
         <GeneralPage />
       {:else if active === "writing"}
