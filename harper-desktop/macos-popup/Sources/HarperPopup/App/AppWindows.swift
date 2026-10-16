@@ -69,6 +69,7 @@ enum AppWindows {
         chrome: Chrome,
         content: () -> some View
     ) {
+        AppMenu.install()
         if let window = windows[kind] {
             bringForward(window)
             return

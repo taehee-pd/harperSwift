@@ -360,17 +360,10 @@ struct ProblemsSidebar: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                 Spacer()
-                Menu {
+                RowMenu(label: "More actions") {
                     Button("Ignore All", action: model.ignoreAll)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
                 .disabled(model.lints.isEmpty)
-                .help("More actions")
-                .accessibilityLabel("More actions")
             }
             .padding(.horizontal, 14)
             .frame(height: headerHeight)
@@ -517,12 +510,14 @@ struct EditorStatusBar: View {
                 Button { model.fontSize = max(11, model.fontSize - 1) } label: {
                     Image(systemName: "textformat.size.smaller")
                 }
-                .help("Smaller text")
+                .keyboardShortcut("-", modifiers: .command)
+                .help("Smaller text (\u{2318}\u{2212})")
                 .accessibilityLabel("Smaller text")
                 Button { model.fontSize = min(32, model.fontSize + 1) } label: {
                     Image(systemName: "textformat.size.larger")
                 }
-                .help("Larger text")
+                .keyboardShortcut("=", modifiers: .command)
+                .help("Larger text (\u{2318}+)")
                 .accessibilityLabel("Larger text")
             }
             .buttonStyle(.borderless)

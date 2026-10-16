@@ -135,6 +135,24 @@ struct WindowGlass: NSViewRepresentable {
     }
 }
 
+/// The "…" button at the end of a row, like the rows in System Settings' Wi-Fi list, with actions
+/// for that row.
+struct RowMenu<Content: View>: View {
+    let label: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        Menu(content: content) {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
 /// A row title with a smaller explanation under it, the way grouped forms show them.
 struct RowLabel: View {
     let title: String

@@ -25,8 +25,9 @@ struct DictionaryPane: View {
         Form {
             Section {
                 HStack {
-                    TextField("New word", text: $newWord)
+                    TextField("New word", text: $newWord, prompt: Text("Add a word"))
                         .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
                         .onSubmit(add)
                     Button("Add", action: add)
                         .disabled(trimmedWord.isEmpty || isDuplicate)
@@ -58,18 +59,12 @@ struct DictionaryPane: View {
                             Text(word)
                                 .textSelection(.enabled)
                             Spacer()
-                            Button {
-                                model.removeWords([word])
-                            } label: {
-                                Image(systemName: "minus.circle")
+                            RowMenu(label: "Options for \(word)") {
+                                Button("Remove From Dictionary") { model.removeWords([word]) }
                             }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.secondary)
-                            .help("Remove \u{201c}\(word)\u{201d}")
-                            .accessibilityLabel("Remove \(word)")
                         }
                         .contextMenu {
-                            Button("Remove \u{201c}\(word)\u{201d}") { model.removeWords([word]) }
+                            Button("Remove From Dictionary") { model.removeWords([word]) }
                         }
                     }
                 }
@@ -260,21 +255,14 @@ private struct GroupHeader: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Menu {
+            RowMenu(label: "Change every rule in \(group.title)") {
                 let ids = Set(group.rules.map(\.id))
                 Button("Turn All On") { model.setRules(ids, enabled: true) }
                 Button("Turn All Off") { model.setRules(ids, enabled: false) }
                 Divider()
                 Button("Restore Defaults") { model.restoreDefaults(ids) }
                     .disabled(!group.rules.contains(where: \.isChanged))
-            } label: {
-                Image(systemName: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Change every rule in \(group.title)")
-            .accessibilityLabel("Change every rule in \(group.title)")
         }
     }
 }
@@ -333,20 +321,14 @@ struct AppsPane: View {
                                 .textSelection(.enabled)
                         }
                         Spacer()
-                        Button {
-                            model.removeApps([app.bundleId])
-                        } label: {
-                            Image(systemName: "minus.circle")
+                        RowMenu(label: "Options for \(app.name)") {
+                            Button("Remove From List") { model.removeApps([app.bundleId]) }
                         }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .help("Remove \(app.name) from the list")
-                        .accessibilityLabel("Remove \(app.name)")
                         Toggle(app.name, isOn: Binding(get: { app.enabled }, set: { model.setAppEnabled(app, $0) }))
                             .labelsHidden()
                     }
                     .contextMenu {
-                        Button("Remove \(app.name)") { model.removeApps([app.bundleId]) }
+                        Button("Remove From List") { model.removeApps([app.bundleId]) }
                     }
                 }
                 HStack {
