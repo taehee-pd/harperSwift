@@ -108,7 +108,7 @@ pub fn record_status(status: Availability) {
     HIGHLIGHTER.with(|state| state.borrow_mut().status = Some(status));
 }
 
-/// "Turn off Clarity suggestions" in the popup: takes effect at once and is saved on the next
+/// "Turn Off Clarity" in the popup: takes effect at once and is saved on the next
 /// sync.
 pub fn turn_off() {
     HIGHLIGHTER.with(|state| {

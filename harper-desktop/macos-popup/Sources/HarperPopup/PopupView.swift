@@ -88,7 +88,7 @@ private struct PopupCard: View {
                 .accessibilityLabel("Ignore this suggestion")
 
             if data.canAddToDictionary {
-                Button("Add to dictionary") { onAction(.addToDictionary) }
+                Button("Add to Dictionary") { onAction(.addToDictionary) }
                     .help("Add \u{201c}\(data.flaggedText)\u{201d} to your personal dictionary")
                     .accessibilityLabel("Add \u{201c}\(data.flaggedText)\u{201d} to dictionary")
             }
@@ -96,7 +96,7 @@ private struct PopupCard: View {
             Spacer(minLength: 8)
 
             // Changes a setting rather than this one lint, so it sits apart from the others.
-            Button("Disable rule") { onAction(.disableRule) }
+            Button("Disable Rule") { onAction(.disableRule) }
                 .help("Stop checking \(data.ruleName)")
                 .accessibilityLabel("Disable rule \(data.ruleName)")
         }
@@ -247,6 +247,9 @@ enum PopupText {
 /// `.borderedProminent`, because the panel is never key and system button styles would render in
 /// their inactive (gray) look.
 struct SuggestionButtonStyle: ButtonStyle {
+    /// Keeps one-letter suggestions ("a") a comfortable size to click.
+    static let minimumWidth: CGFloat = 40
+
     let isPrimary: Bool
 
     func makeBody(configuration: Configuration) -> some View {
@@ -266,6 +269,7 @@ struct SuggestionButtonStyle: ButtonStyle {
                 .foregroundStyle(isPrimary ? Color.white : Color.primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
+                .frame(minWidth: SuggestionButtonStyle.minimumWidth)
                 .background(Capsule().fill(fill))
                 // Pressing darkens the button at once (on mouse-down), the way AppKit buttons do.
                 .overlay(Capsule().fill(Color.black.opacity(configuration.isPressed ? 0.14 : 0)))
