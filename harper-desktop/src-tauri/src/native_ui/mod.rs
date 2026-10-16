@@ -44,9 +44,12 @@ struct Request {
     params: Value,
 }
 
-/// Runs a request from Swift off the main thread and answers on the main thread.
+/// Runs a request from Swift off the main thread and answers on the main thread. Every request
+/// gets an answer, or the Swift caller would wait forever.
 fn dispatch(id: u64, request: String) {
     let Some(app) = APP.get().cloned() else {
+        // Called on the main thread, so the answer can go back at once.
+        ffi::respond(id, &json!({ "error": "Harper is still starting." }).to_string());
         return;
     };
 
@@ -61,7 +64,9 @@ fn dispatch(id: u64, request: String) {
         }
         .to_string();
 
-        let _ = app.run_on_main_thread(move || ffi::respond(id, &json));
+        if let Err(error) = app.run_on_main_thread(move || ffi::respond(id, &json)) {
+            eprintln!("failed to answer a native window request: {error}");
+        }
     });
 }
 
