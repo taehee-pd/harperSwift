@@ -190,6 +190,7 @@ struct SetupView: View {
             .padding(.vertical, 14)
         }
         .frame(width: 620, height: 470)
+        .background(WindowGlass().ignoresSafeArea())
         .alert(
             "Something went wrong",
             isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.failure = nil } }),

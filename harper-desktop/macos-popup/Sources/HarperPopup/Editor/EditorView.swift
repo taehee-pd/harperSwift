@@ -25,6 +25,7 @@ struct EditorView: View {
             layout(titleBarHeight: proxy.safeAreaInsets.top)
         }
         .ignoresSafeArea(.container, edges: .top)
+        .background(WindowGlass().ignoresSafeArea())
         .frame(minWidth: 620, minHeight: 400)
         .alert(
             "Harper couldn\u{2019}t check this text",
@@ -54,7 +55,6 @@ struct EditorView: View {
                             }
                         }
                 }
-                .background(Color(nsColor: .textBackgroundColor))
                 if model.showsProblems {
                     Divider()
                     ProblemsSidebar(model: model, headerHeight: max(titleBarHeight, 28))
@@ -100,7 +100,8 @@ struct EditorTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
-        scrollView.drawsBackground = true
+        // The page is the window's glass.
+        scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
 
         // TextKit 1: underlines are layout manager temporary attributes, which do not touch the
@@ -112,6 +113,7 @@ struct EditorTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
+        textView.drawsBackground = false
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
@@ -410,9 +412,9 @@ struct ProblemsSidebar: View {
                         .accessibilityAction(named: "Show in Text") { model.reveal(lint) }
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
     }
 }
 
@@ -539,7 +541,6 @@ struct EditorStatusBar: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .frame(height: 30)
-        .background(.bar)
     }
 
     private var problemSummary: String {

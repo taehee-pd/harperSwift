@@ -116,6 +116,25 @@ struct WindowTitle: NSViewRepresentable {
     }
 }
 
+/// The frosted, see-through material of the system sidebars, for a whole window background. It
+/// blurs what is behind the window, dims while the window is inactive, and turns solid when the
+/// user asks for reduced transparency, all like the system's own.
+struct WindowGlass: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .sidebar
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+    }
+}
+
 /// A row title with a smaller explanation under it, the way grouped forms show them.
 struct RowLabel: View {
     let title: String

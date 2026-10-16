@@ -83,6 +83,9 @@ struct SettingsView: View {
             }
             .navigationTitle((pane ?? .general).title)
             .background(WindowTitle(title: (pane ?? .general).title))
+            // Grouped forms sit on glass; their rows keep a fill of their own.
+            .scrollContentBackground(.hidden)
+            .background(WindowGlass().ignoresSafeArea())
         }
         .removingSidebarToggle()
         .frame(minWidth: 680, minHeight: 460)
