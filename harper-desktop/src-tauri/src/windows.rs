@@ -1,4 +1,7 @@
 //! Functions to manage the main windows involved in Harper Desktop
+//!
+//! Modified in this fork (taehee-pd/harperSwift): on macOS, Settings and the editor are native
+//! SwiftUI windows (`native_ui/`) instead of web views.
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
@@ -76,7 +79,11 @@ fn show_window(window: WebviewWindow) -> tauri::Result<()> {
 }
 
 /// Open the editor window, focusing it if it already exists.
+#[cfg_attr(target_os = "macos", allow(unreachable_code))]
 pub fn show_editor_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    return crate::native_ui::show_editor(app);
+
     if let Some(window) = app.get_webview_window("editor") {
         return show_window(window);
     }
@@ -91,7 +98,11 @@ pub fn show_editor_window(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 /// Open the settings window, focusing it if it already exists.
+#[cfg_attr(target_os = "macos", allow(unreachable_code))]
 pub fn show_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    return crate::native_ui::show_settings(app);
+
     if let Some(window) = app.get_webview_window("settings") {
         return show_window(window);
     }

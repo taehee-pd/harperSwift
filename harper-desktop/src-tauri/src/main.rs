@@ -2,7 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 // Modified in this fork (taehee-pd/harperSwift): on macOS, `lint_text` also merges Clarity
-// suggestions, and the config refresh syncs the Clarity setting (`clarity/`).
+// suggestions, the config refresh syncs the Clarity setting (`clarity/`), and Settings, the
+// first-run setup and the editor are native SwiftUI windows (`native_ui/`).
 
 mod debug_broker;
 mod tray;
@@ -58,6 +59,8 @@ pub mod rect;
 mod clarity;
 #[cfg(target_os = "macos")]
 mod mac_broker;
+#[cfg(target_os = "macos")]
+mod native_ui;
 
 #[cfg(target_os = "windows")]
 mod windows_broker;
@@ -192,6 +195,9 @@ pub fn run_tauri() {
                     .inspect_err(|err| error!("Unable to start highlighter: {err}"));
             }
             app.manage(highlighter_service);
+
+            #[cfg(target_os = "macos")]
+            native_ui::set_up(app.handle())?;
 
             set_up_tray_menu(app.handle())?;
             warm_app_search_cache(app.handle().clone());

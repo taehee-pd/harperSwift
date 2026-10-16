@@ -1,0 +1,16 @@
+{
+	"dialect": "British",
+	"debounceMs": 250,
+	"launchAtLogin": true,
+	"autoUpdate": false,
+	"version": "1.2.0",
+	"clarity": {
+		"enabled": true,
+		"available": false,
+		"status": "Unavailable: Apple Intelligence is turned off in System Settings"
+	},
+	"dictionary": ["Harper", "macOS"],
+	"apps": [{ "bundleId": "com.apple.TextEdit", "name": "TextEdit", "enabled": true }],
+	"autoEnableNewApps": true,
+	"onboardingCompleted": false
+}

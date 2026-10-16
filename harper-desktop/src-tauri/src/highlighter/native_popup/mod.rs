@@ -115,6 +115,17 @@ fn next_step(
     }
 }
 
+/// The popup's JSON for `lint`, for the native editor, which shows the same card.
+pub(crate) fn popup_json(id: u64, lint: &ActionableLint) -> serde_json::Value {
+    let content = PopupContent::new(lint);
+    let payload = PopupPayload {
+        id,
+        content: &content,
+        anchor: lint.rect.into(),
+    };
+    serde_json::to_value(&payload).unwrap_or_default()
+}
+
 /// Whether the lint's span lies inside its source text. The shared action handlers index the text
 /// with the span and would panic otherwise, which can happen while lints are briefly cached for
 /// older, longer text during typing.

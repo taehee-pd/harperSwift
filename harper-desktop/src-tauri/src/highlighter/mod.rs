@@ -1,5 +1,5 @@
 // Modified in this fork (taehee-pd/harperSwift): registers the native macOS popup and the Clarity
-// underline modules.
+// underline modules, and shares the popup's JSON with the native editor.
 
 #[cfg(target_os = "macos")]
 mod clarity_underline;
@@ -13,6 +13,8 @@ mod window_manager;
 use std::collections::BTreeMap;
 
 pub use error::Error;
+#[cfg(target_os = "macos")]
+pub(crate) use native_popup::popup_json;
 use window_manager::{WindowManager, WindowManagerCallbacks};
 
 use harper_core::{Document, linting::Lint};
