@@ -16,10 +16,8 @@ enum AppWindows {
     enum Chrome {
         /// Content under a unified toolbar that shows the SwiftUI title, like System Settings.
         case sidebar
-        /// No visible title bar, like a setup assistant.
-        case assistant
-        /// A standard title bar, like TextEdit.
-        case plain
+        /// No visible title bar: the content runs to the top edge, under the window controls.
+        case hiddenTitleBar
     }
 
     private static var windows: [Kind: NSWindow] = [:]
@@ -48,13 +46,13 @@ enum AppWindows {
     }
 
     static func showSetup() {
-        present(.setup, title: "Welcome to Harper", size: NSSize(width: 620, height: 470), resizable: false, chrome: .assistant) {
+        present(.setup, title: "Welcome to Harper", size: NSSize(width: 620, height: 470), resizable: false, chrome: .hiddenTitleBar) {
             SetupView(model: SetupModel())
         }
     }
 
     static func showEditor() {
-        present(.editor, title: "Harper Editor", size: NSSize(width: 960, height: 680), resizable: true, chrome: .plain) {
+        present(.editor, title: "Harper Editor", size: NSSize(width: 960, height: 680), resizable: true, chrome: .hiddenTitleBar) {
             EditorView(model: EditorModel())
         }
     }
@@ -118,12 +116,10 @@ enum AppWindows {
                 window.toolbar = NSToolbar(identifier: "Harper.\(title)")
                 window.titleVisibility = .hidden
             }
-        case .assistant:
+        case .hiddenTitleBar:
             window.styleMask.insert(.fullSizeContentView)
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
-        case .plain:
-            break
         }
 
         window.setContentSize(size)

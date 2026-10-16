@@ -20,12 +20,14 @@ use objc2_foundation::NSRect;
 use std::{
     cell::{Cell, RefCell},
     ptr,
+    time::Instant,
 };
 
 use crate::rect::{ActionableLint, Rect};
 
 use super::LintCallback;
 use super::caret_tracker::{CaretRelation, CaretState, CaretTracker};
+use super::text_selection::Replacement;
 use super::text_selection::caret_char_index;
 
 /// Outcome of asking macOS for the bounds of a text range.
@@ -231,7 +233,12 @@ impl<'a> RectCollector<'a> {
     /// Reports the caret of the first text field read; other fields count as having none.
     fn observe_caret(&self, element: &AXUIElement, text: &str) -> CaretState {
         match self.caret_tracker.borrow_mut().take() {
-            Some(tracker) => tracker.observe(element, text, caret_char_index(element, text)),
+            Some(tracker) => tracker.observe(
+                element,
+                text,
+                caret_char_index(element, text),
+                Instant::now(),
+            ),
             None => CaretState {
                 caret: None,
                 motion: super::caret_tracker::CaretMotion::Arrived,
@@ -266,8 +273,11 @@ fn apply_suggestion_to_element(
         ),
         Suggestion::Remove => (lint.span, String::new()),
     };
-    if super::text_selection::replace_span(&element, &source_text, span, &replacement) {
-        return;
+    match super::text_selection::replace_span(&element, &source_text, span, &replacement) {
+        Replacement::Replaced => return,
+        // Rewriting the value now would throw away what the user just typed.
+        Replacement::TextChanged => return,
+        Replacement::Unsupported => {}
     }
 
     let mut chars = source_text.chars().collect::<Vec<_>>();

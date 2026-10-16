@@ -16,6 +16,12 @@ struct EditorLint: Decodable, Identifiable, Equatable {
     func contains(caret: Int) -> Bool {
         location <= caret && caret <= location + length
     }
+
+    /// Whether `other` is the same problem from another check: ids change with every check.
+    func isSame(as other: EditorLint) -> Bool {
+        location == other.location && length == other.length
+            && popup.ruleName == other.popup.ruleName && popup.flaggedText == other.popup.flaggedText
+    }
 }
 
 enum EditorFont: String, CaseIterable, Identifiable {
@@ -108,12 +114,16 @@ final class EditorModel: ObservableObject {
     }
 
     /// Called after every edit. Problems before or after the edit keep their underline (shifted
-    /// past it) until the next check, so nothing blinks; problems the edit touched are dropped.
+    /// past it) until the next check, so nothing blinks; problems the edit touched are dropped,
+    /// including a word the edit made longer.
     func textDidChange(_ text: String, edited: NSRange, changeInLength: Int) {
         self.text = text
         let oldEnd = edited.location + edited.length - changeInLength
+        let inserted = NSMaxRange(edited) <= (text as NSString).length ? (text as NSString).substring(with: edited) : ""
+        let extendsWord = inserted.first.map { $0.isLetter || $0.isNumber } ?? false
         lints = lints.compactMap { lint in
-            if lint.location + lint.length <= edited.location {
+            let end = lint.location + lint.length
+            if end < edited.location || (end == edited.location && !extendsWord) {
                 return lint
             }
             if lint.location >= oldEnd {
@@ -177,6 +187,9 @@ final class EditorModel: ObservableObject {
             range = lint.range
             replacement = ""
         }
+        // An insertion lands just after the problem, which would otherwise stay underlined until
+        // the next check.
+        lints.removeAll { $0.isSame(as: lint) }
         editor?.replace(range, with: replacement)
     }
 

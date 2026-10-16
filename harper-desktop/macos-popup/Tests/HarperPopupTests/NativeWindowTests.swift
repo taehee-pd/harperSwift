@@ -60,4 +60,21 @@ struct NativeWindowTests {
 
         #expect(model.lints.map(\.range) == [NSRange(location: 0, length: 3), NSRange(location: 22, length: 3)])
     }
+
+    @Test @MainActor func keepsAProblemWhenASpaceFollowsItButNotWhenTheWordGrows() throws {
+        let popup = try JSONSerialization.jsonObject(with: fixture("popup.json"))
+        let teh = try decoder.decode(EditorLint.self, from: JSONSerialization.data(
+            withJSONObject: ["location": 0, "length": 3, "popup": popup]
+        ))
+
+        let spaced = EditorModel()
+        spaced.replaceLintsForTesting([teh])
+        spaced.textDidChange("teh ", edited: NSRange(location: 3, length: 1), changeInLength: 1)
+        #expect(spaced.lints.map(\.range) == [NSRange(location: 0, length: 3)])
+
+        let grown = EditorModel()
+        grown.replaceLintsForTesting([teh])
+        grown.textDidChange("tehs", edited: NSRange(location: 3, length: 1), changeInLength: 1)
+        #expect(grown.lints.isEmpty)
+    }
 }

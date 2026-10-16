@@ -146,7 +146,6 @@ final class PopupController {
         panel.ignoresMouseEvents = false
         render(data)
         startObserving()
-        acceptShortcut.enable()
 
         switch previous {
         case .hidden:
@@ -222,6 +221,12 @@ final class PopupController {
 
     private func render(_ data: PopupData) {
         self.data = data
+        // Control-Command-Y stays with the app in front unless there is a suggestion to accept.
+        if data.suggestions.isEmpty {
+            acceptShortcut.disable()
+        } else {
+            acceptShortcut.enable()
+        }
         hostingView.rootView = PopupView(data: data, chrome: chrome) { [weak self] action in
             self?.send(action)
         }

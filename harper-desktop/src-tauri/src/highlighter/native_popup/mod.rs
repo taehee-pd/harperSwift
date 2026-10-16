@@ -176,9 +176,11 @@ pub struct NativePopup {
     shown: Option<ShownPopup>,
     last_id: u64,
     presses: PressCounter,
-    /// The lint the caret was in at the last frame.
-    caret_lint: Option<(usize, Span<char>)>,
-    /// Whether the open popup was opened by the caret, which then also closes it on leaving.
+    /// The span of the lint the caret was in at the last frame. Lint indexes shift when other
+    /// lints come and go, so only the span says whether the caret really moved.
+    caret_span: Option<Span<char>>,
+    /// Whether the open popup was opened by the caret, which then also closes it on leaving. A
+    /// click or a popup action hands the popup back to the user.
     opened_by_caret: bool,
 }
 
@@ -190,7 +192,7 @@ impl NativePopup {
             shown: None,
             last_id: 0,
             presses: PressCounter::new(),
-            caret_lint: None,
+            caret_span: None,
             opened_by_caret: false,
         }
     }
@@ -229,7 +231,7 @@ impl NativePopup {
     }
 
     /// Runs actions reported by Swift, dropping any that were meant for content no longer shown.
-    fn apply_actions(&self, render_state: &mut RenderState) {
+    fn apply_actions(&mut self, render_state: &mut RenderState) {
         for raw in ffi::take_actions() {
             let Some(shown) = self.shown.as_ref().filter(|shown| shown.id == raw.popup_id) else {
                 continue;
@@ -252,6 +254,7 @@ impl NativePopup {
 
             if let Some(card_action) = card_action {
                 render_state.apply_card_action(shown.index, card_action);
+                self.opened_by_caret = false;
             }
         }
     }
@@ -277,8 +280,14 @@ impl NativePopup {
             render_state.hit_target_at_pos(cursor),
         ) {
             ClickOutcome::Ignore => {}
-            ClickOutcome::Select(index) => render_state.set_highlighted_lint(Some(index)),
-            ClickOutcome::Close => render_state.close_popup(),
+            ClickOutcome::Select(index) => {
+                render_state.set_highlighted_lint(Some(index));
+                self.opened_by_caret = false;
+            }
+            ClickOutcome::Close => {
+                render_state.close_popup();
+                self.opened_by_caret = false;
+            }
         }
     }
 
@@ -286,10 +295,11 @@ impl NativePopup {
     /// the caret opened once the caret leaves that lint.
     fn follow_caret(&mut self, render_state: &mut RenderState) {
         let caret_lint = render_state.caret_lint();
-        if caret_lint == self.caret_lint {
+        let caret_span = caret_lint.map(|(_, span)| span);
+        if caret_span == self.caret_span {
             return;
         }
-        self.caret_lint = caret_lint;
+        self.caret_span = caret_span;
 
         match caret_lint {
             Some((index, _)) => {

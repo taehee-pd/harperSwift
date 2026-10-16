@@ -29,6 +29,9 @@ final class SetupModel: ObservableObject {
 
     init() {
         Task { await loadTextEdit() }
+        if isTrusted {
+            Task { await startChecking() }
+        }
         // Watch for the grant while the user is in System Settings.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkTrust() }
@@ -66,14 +69,21 @@ final class SetupModel: ObservableObject {
         }
     }
 
+    /// The first time, the system alert adds Harper to the Accessibility list and offers to open
+    /// System Settings; opening Settings as well would put two windows in front of the user. Later
+    /// presses go straight to the list.
     func requestAccess() {
+        if askedForAccess {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
         askedForAccess = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         if AXIsProcessTrustedWithOptions(options) {
             isTrusted = true
             Task { await startChecking() }
-        } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
         }
     }
 
@@ -115,8 +125,9 @@ final class SetupModel: ObservableObject {
             defer { isWorking = false }
             do {
                 try await NativeBridge.perform("onboarding.complete")
-                AppWindows.close(.setup)
+                // Open Settings first, so Harper keeps a window and its Dock icon throughout.
                 AppWindows.showSettings()
+                AppWindows.close(.setup)
             } catch {
                 failure = error.localizedDescription
             }

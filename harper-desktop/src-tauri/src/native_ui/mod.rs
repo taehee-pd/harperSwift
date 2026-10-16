@@ -49,7 +49,10 @@ struct Request {
 fn dispatch(id: u64, request: String) {
     let Some(app) = APP.get().cloned() else {
         // Called on the main thread, so the answer can go back at once.
-        ffi::respond(id, &json!({ "error": "Harper is still starting." }).to_string());
+        ffi::respond(
+            id,
+            &json!({ "error": "Harper is still starting." }).to_string(),
+        );
         return;
     };
 

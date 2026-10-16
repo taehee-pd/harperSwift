@@ -6,6 +6,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use harper_core::linting::{FlatConfig, Lint, LintGroup};
@@ -106,6 +107,13 @@ struct Checker {
 
 static CHECKER: StdMutex<Option<Checker>> = StdMutex::new(None);
 
+/// Ids are never reused, so the editor and its list cannot mistake a new lint for an old one at the
+/// same position.
+fn next_lint_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 /// Runs `use_lints` on the lints in `text` (ignored ones removed), on a blocking thread.
 async fn with_lints<T: Send + 'static>(
     config: &SharedConfig,
@@ -167,9 +175,8 @@ async fn lint(config: &SharedConfig, params: &Value) -> Result<Vec<EditorLint>, 
 
         lints
             .into_iter()
-            .enumerate()
-            .filter(|(_, (_, lint))| lint.span.end < utf16_offsets.len())
-            .map(|(index, (rule, lint))| {
+            .filter(|(_, lint)| lint.span.end < utf16_offsets.len())
+            .map(|(rule, lint)| {
                 let (start, end) = (lint.span.start, lint.span.end);
                 let actionable = ActionableLint::new(
                     Rect::new(0.0, 0.0, 0.0, 0.0),
@@ -182,7 +189,7 @@ async fn lint(config: &SharedConfig, params: &Value) -> Result<Vec<EditorLint>, 
                 EditorLint {
                     location: utf16_offsets[start],
                     length: utf16_offsets[end] - utf16_offsets[start],
-                    popup: crate::highlighter::popup_json(index as u64 + 1, &actionable),
+                    popup: crate::highlighter::popup_json(next_lint_id(), &actionable),
                 }
             })
             .collect()
@@ -275,6 +282,24 @@ mod tests {
         ] {
             assert!(lint["popup"].get(key).is_some(), "popup has no `{key}`");
         }
+    }
+
+    #[test]
+    fn never_reuses_lint_ids() {
+        let config = Arc::new(Mutex::new(Config::new()));
+        let params = serde_json::json!({ "text": "Ths is an test." });
+        let ids = || {
+            tauri::async_runtime::block_on(lint(&config, &params))
+                .unwrap()
+                .iter()
+                .map(|lint| lint.popup["id"].as_u64().unwrap())
+                .collect::<Vec<_>>()
+        };
+
+        let first = ids();
+        let second = ids();
+        assert!(first.len() >= 2);
+        assert!(first.iter().all(|id| !second.contains(id)));
     }
 
     #[test]

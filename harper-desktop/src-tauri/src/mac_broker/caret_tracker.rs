@@ -9,7 +9,13 @@
 //! - Arriving in a field (focusing it, switching back to the app) is neither: lints show as usual
 //!   and no popup opens by itself.
 
+use std::time::{Duration, Instant};
+
 use harper_core::Span;
+
+/// A caret that moves this soon after the text changed is still typing. Some apps update the caret
+/// one read after the text, and that catch-up is not the user moving the caret.
+const SETTLE_TIME: Duration = Duration::from_millis(150);
 
 /// How the caret got to where it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +71,7 @@ struct Observation<E> {
 pub struct CaretTracker<E> {
     last: Option<Observation<E>>,
     motion: CaretMotion,
+    typed_at: Option<Instant>,
 }
 
 impl<E> Default for CaretTracker<E> {
@@ -72,18 +79,32 @@ impl<E> Default for CaretTracker<E> {
         Self {
             last: None,
             motion: CaretMotion::Arrived,
+            typed_at: None,
         }
     }
 }
 
 impl<E: PartialEq + Clone> CaretTracker<E> {
-    /// Records one read of the focused field and says how the caret got there.
-    pub fn observe(&mut self, element: &E, text: &str, caret: Option<usize>) -> CaretState {
+    /// Records one read of the focused field, made at `now`, and says how the caret got there.
+    pub fn observe(
+        &mut self,
+        element: &E,
+        text: &str,
+        caret: Option<usize>,
+        now: Instant,
+    ) -> CaretState {
+        let settling = self
+            .typed_at
+            .is_some_and(|typed_at| now.duration_since(typed_at) < SETTLE_TIME);
+
         self.motion = match &self.last {
             None => CaretMotion::Arrived,
             Some(last) if last.element != *element => CaretMotion::Arrived,
-            Some(last) if last.text != text => CaretMotion::Typed,
-            Some(last) if last.caret != caret => CaretMotion::Moved,
+            Some(last) if last.text != text => {
+                self.typed_at = Some(now);
+                CaretMotion::Typed
+            }
+            Some(last) if last.caret != caret && !settling => CaretMotion::Moved,
             Some(_) => self.motion,
         };
 
@@ -152,39 +173,67 @@ mod tests {
         assert_eq!(state.relation(Span::new(0, 3)), CaretRelation::Away);
     }
 
+    /// A read `ms` milliseconds after `start`.
+    fn at(start: Instant, ms: u64) -> Instant {
+        start + Duration::from_millis(ms)
+    }
+
     #[test]
     fn typing_then_moving_the_caret() {
+        let start = Instant::now();
         let mut tracker = CaretTracker::default();
         assert_eq!(
-            tracker.observe(&1, "teh", Some(3)).motion,
+            tracker.observe(&1, "teh", Some(3), at(start, 0)).motion,
             CaretMotion::Arrived
         );
         assert_eq!(
-            tracker.observe(&1, "teh ", Some(4)).motion,
+            tracker.observe(&1, "teh ", Some(4), at(start, 100)).motion,
             CaretMotion::Typed
         );
         // A read with nothing new keeps the last answer.
         assert_eq!(
-            tracker.observe(&1, "teh ", Some(4)).motion,
+            tracker.observe(&1, "teh ", Some(4), at(start, 400)).motion,
             CaretMotion::Typed
         );
         assert_eq!(
-            tracker.observe(&1, "teh ", Some(1)).motion,
+            tracker.observe(&1, "teh ", Some(1), at(start, 500)).motion,
             CaretMotion::Moved
         );
         assert_eq!(
-            tracker.observe(&1, "tseh ", Some(2)).motion,
+            tracker.observe(&1, "tseh ", Some(2), at(start, 600)).motion,
             CaretMotion::Typed
         );
     }
 
     #[test]
-    fn a_new_field_is_an_arrival() {
+    fn a_caret_catching_up_with_typing_is_still_typing() {
+        let start = Instant::now();
         let mut tracker = CaretTracker::default();
-        tracker.observe(&1, "one", Some(3));
-        tracker.observe(&1, "one two", Some(7));
+        tracker.observe(&1, "te", Some(2), at(start, 0));
+        // The app reports the new text first and the caret one read later.
         assert_eq!(
-            tracker.observe(&2, "three", Some(2)).motion,
+            tracker.observe(&1, "teh", Some(2), at(start, 16)).motion,
+            CaretMotion::Typed
+        );
+        assert_eq!(
+            tracker.observe(&1, "teh", Some(3), at(start, 32)).motion,
+            CaretMotion::Typed
+        );
+        // Moving the caret once things settle counts.
+        assert_eq!(
+            tracker.observe(&1, "teh", Some(1), at(start, 400)).motion,
+            CaretMotion::Moved
+        );
+    }
+
+    #[test]
+    fn a_new_field_is_an_arrival() {
+        let start = Instant::now();
+        let mut tracker = CaretTracker::default();
+        tracker.observe(&1, "one", Some(3), at(start, 0));
+        tracker.observe(&1, "one two", Some(7), at(start, 100));
+        assert_eq!(
+            tracker.observe(&2, "three", Some(2), at(start, 200)).motion,
             CaretMotion::Arrived
         );
     }

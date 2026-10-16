@@ -274,6 +274,7 @@ private struct GroupHeader: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("Change every rule in \(group.title)")
+            .accessibilityLabel("Change every rule in \(group.title)")
         }
     }
 }

@@ -83,6 +83,10 @@ final class SettingsModel: ObservableObject {
 
     private var statusTimer: Timer?
     private var keyObserver: NSObjectProtocol?
+    /// Bumped by every change. A reload that overlapped a change may have read the old value, so
+    /// its result is dropped; the next reload picks the change up.
+    private var editGeneration = 0
+    private var editsInFlight = 0
 
     init() {
         Task { await reload() }
@@ -113,16 +117,43 @@ final class SettingsModel: ObservableObject {
     }
 
     private func reloadSnapshot() async {
+        let generation = quietGeneration
         do {
-            snapshot = try await NativeBridge.request("settings.load")
+            let next = try await NativeBridge.request("settings.load", as: SettingsSnapshot.self)
+            if generation == editGeneration {
+                snapshot = next
+            }
         } catch {
             failure = error.localizedDescription
         }
     }
 
     private func reloadRules() async {
-        if let groups = try? await NativeBridge.request("rules.load", as: [RuleGroup].self) {
+        let generation = quietGeneration
+        if let groups = try? await NativeBridge.request("rules.load", as: [RuleGroup].self), generation == editGeneration {
             ruleGroups = groups
+        }
+    }
+
+    /// The current generation when no change is on its way to Rust, or `nil`.
+    private var quietGeneration: Int? {
+        editsInFlight == 0 ? editGeneration : nil
+    }
+
+    /// Sends a change to Rust and runs `onFailure` if it cannot be saved.
+    private func sendEdit(_ method: String, _ params: [String: Any], onFailure: @escaping () async -> Void) {
+        editGeneration += 1
+        editsInFlight += 1
+        Task {
+            do {
+                try await NativeBridge.perform(method, params)
+                editsInFlight -= 1
+            } catch {
+                // Settled before rolling back, so a reload in `onFailure` is not dropped.
+                editsInFlight -= 1
+                failure = error.localizedDescription
+                await onFailure()
+            }
         }
     }
 
@@ -136,15 +167,7 @@ final class SettingsModel: ObservableObject {
         let previous = next
         edit(&next)
         snapshot = next
-
-        Task {
-            do {
-                try await NativeBridge.perform(method, params)
-            } catch {
-                snapshot = previous
-                failure = error.localizedDescription
-            }
-        }
+        sendEdit(method, params) { [weak self] in self?.snapshot = previous }
     }
 
     // MARK: General
@@ -264,13 +287,6 @@ final class SettingsModel: ObservableObject {
     }
 
     private func send(_ method: String, _ params: [String: Any] = [:]) {
-        Task {
-            do {
-                try await NativeBridge.perform(method, params)
-            } catch {
-                failure = error.localizedDescription
-                await reloadRules()
-            }
-        }
+        sendEdit(method, params) { [weak self] in await self?.reloadRules() }
     }
 }

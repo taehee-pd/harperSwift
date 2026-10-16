@@ -4,7 +4,7 @@
 //! matching Tauri command in `commands.rs`: change [`Config`], then save it.
 
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 
 use harper_core::linting::{
     FlatConfig, HumanReadableSetting, HumanReadableStructuredConfig, StructuredConfig,
@@ -219,39 +219,67 @@ struct AppView {
 }
 
 async fn load(app: &AppHandle, config: &SharedConfig) -> Result<SettingsSnapshot, String> {
-    let config = config.lock().await;
+    // Copy what is needed and let go of the config: the highlighter reads it too, and app names
+    // below can take a Spotlight query each.
+    let (mut snapshot, integrations) = {
+        let config = config.lock().await;
+        let dictionary = config
+            .mutable_dictionary
+            .words_iter()
+            .map(|word| word.iter().collect::<String>())
+            .collect::<Vec<_>>();
+        let snapshot = SettingsSnapshot {
+            dialect: config.dialect,
+            debounce_ms: config.debounce_ms,
+            launch_at_login: false,
+            auto_update: config.auto_update,
+            version: DesktopUpdater::current_version(app),
+            clarity: ClaritySettingsView::new(&config.clarity),
+            dictionary,
+            apps: Vec::new(),
+            auto_enable_new_apps: config.auto_enable_new_apps,
+            onboarding_completed: config.onboarding_completed,
+        };
+        (snapshot, config.integrations.clone())
+    };
+
+    snapshot.dictionary.sort_by_key(|word| word.to_lowercase());
+    snapshot.launch_at_login = app.autolaunch().is_enabled().unwrap_or(false);
+
     let broker = app.state::<RwLock<PlatformBroker>>();
     let broker = broker
         .read()
         .map_err(|error| format!("Failed to read platform broker: {error}"))?;
+    snapshot.apps = integrations
+        .into_iter()
+        .map(|integration| AppView {
+            name: app_name(&broker, &integration.bundle_id),
+            bundle_id: integration.bundle_id,
+            enabled: integration.enabled,
+        })
+        .collect();
 
-    let mut dictionary = config
-        .mutable_dictionary
-        .words_iter()
-        .map(|word| word.iter().collect::<String>())
-        .collect::<Vec<_>>();
-    dictionary.sort_by_key(|word| word.to_lowercase());
+    Ok(snapshot)
+}
 
-    Ok(SettingsSnapshot {
-        dialect: config.dialect,
-        debounce_ms: config.debounce_ms,
-        launch_at_login: app.autolaunch().is_enabled().unwrap_or(false),
-        auto_update: config.auto_update,
-        version: DesktopUpdater::current_version(app),
-        clarity: ClaritySettingsView::new(&config.clarity),
-        dictionary,
-        apps: config
-            .integrations
-            .iter()
-            .map(|integration| AppView {
-                name: broker.integration_display_name(&integration.bundle_id),
-                bundle_id: integration.bundle_id.clone(),
-                enabled: integration.enabled,
-            })
-            .collect(),
-        auto_enable_new_apps: config.auto_enable_new_apps,
-        onboarding_completed: config.onboarding_completed,
-    })
+/// An app's name, remembered: Settings reloads every few seconds, and each lookup is a Spotlight
+/// query.
+fn app_name(broker: &PlatformBroker, bundle_id: &str) -> String {
+    static NAMES: OnceLock<StdMutex<HashMap<String, String>>> = OnceLock::new();
+    let names = NAMES.get_or_init(Default::default);
+
+    if let Some(name) = names
+        .lock()
+        .ok()
+        .and_then(|names| names.get(bundle_id).cloned())
+    {
+        return name;
+    }
+    let name = broker.integration_display_name(bundle_id);
+    if let Ok(mut names) = names.lock() {
+        names.insert(bundle_id.to_owned(), name.clone());
+    }
+    name
 }
 
 fn set_launch_at_login(app: &AppHandle, params: &Value) -> Result<(), String> {

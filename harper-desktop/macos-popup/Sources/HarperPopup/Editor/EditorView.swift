@@ -11,7 +11,8 @@ protocol EditorTextController: AnyObject {
     func closePopover()
 }
 
-/// The editor window: the text, the problems beside it, and a status bar.
+/// The editor window: the text, the problems beside it, and a status bar. There is no visible
+/// title bar; the window controls sit over a band at the top of the page.
 struct EditorView: View {
     @StateObject private var model: EditorModel
 
@@ -20,29 +21,10 @@ struct EditorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    EditorTextView(model: model)
-                    if model.text.isEmpty {
-                        Text("Start writing\u{2026}")
-                            .font(Font(model.font.font(size: model.fontSize)))
-                            .foregroundStyle(.tertiary)
-                            .padding(.leading, EditorTextView.inset.width + 5)
-                            .padding(.top, EditorTextView.inset.height)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
-                if model.showsProblems {
-                    Divider()
-                    ProblemsSidebar(model: model)
-                        .frame(width: 300)
-                }
-            }
-            Divider()
-            EditorStatusBar(model: model)
+        GeometryReader { proxy in
+            layout(titleBarHeight: proxy.safeAreaInsets.top)
         }
+        .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 620, minHeight: 400)
         .alert(
             "Harper couldn\u{2019}t check this text",
@@ -51,6 +33,37 @@ struct EditorView: View {
         ) { _ in
             Button("OK") {}
         } message: { Text($0) }
+    }
+
+    private func layout(titleBarHeight: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    // The window controls sit here; the text scrolls below them, not under them.
+                    Color.clear.frame(height: titleBarHeight)
+                    EditorTextView(model: model)
+                        .overlay(alignment: .topLeading) {
+                            if model.text.isEmpty {
+                                Text("Start writing\u{2026}")
+                                    .font(Font(model.font.font(size: model.fontSize)))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.leading, EditorTextView.inset.width + 5)
+                                    .padding(.top, EditorTextView.inset.height)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                }
+                .background(Color(nsColor: .textBackgroundColor))
+                if model.showsProblems {
+                    Divider()
+                    ProblemsSidebar(model: model, headerHeight: max(titleBarHeight, 28))
+                        .frame(width: 300)
+                }
+            }
+            Divider()
+            EditorStatusBar(model: model)
+        }
     }
 }
 
@@ -135,11 +148,11 @@ struct EditorTextView: NSViewRepresentable {
             textView.font = font
             textView.typingAttributes[.font] = font
         }
-        context.coordinator.drawUnderlines()
+        context.coordinator.followLints()
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate, EditorTextController {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate, NSPopoverDelegate, EditorTextController {
         let model: EditorModel
         weak var textView: HarperTextView?
 
@@ -216,7 +229,7 @@ struct EditorTextView: NSViewRepresentable {
                     .underlineStyle: NSUnderlineStyle.thick.rawValue,
                     .underlineColor: color,
                 ]
-                if lint.id == popoverLint?.id, popover?.isShown == true {
+                if let popoverLint, lint.isSame(as: popoverLint), popover?.isShown == true {
                     attributes[.backgroundColor] = color.withAlphaComponent(0.16)
                 }
                 layoutManager.addTemporaryAttributes(attributes, forCharacterRange: lint.range)
@@ -228,7 +241,7 @@ struct EditorTextView: NSViewRepresentable {
         private func showPopover(for lint: EditorLint) {
             guard let textView, let layoutManager = textView.layoutManager,
                   let container = textView.textContainer else { return }
-            if popover?.isShown == true, popoverLint?.id == lint.id { return }
+            if popover?.isShown == true, let popoverLint, popoverLint.isSame(as: lint) { return }
             closePopover()
 
             let glyphs = layoutManager.glyphRange(forCharacterRange: lint.range, actualCharacterRange: nil)
@@ -246,6 +259,7 @@ struct EditorTextView: NSViewRepresentable {
             let popover = NSPopover()
             popover.contentViewController = host
             popover.behavior = .semitransient
+            popover.delegate = self
             popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
 
@@ -255,10 +269,36 @@ struct EditorTextView: NSViewRepresentable {
         }
 
         func closePopover() {
-            guard popover != nil else { return }
-            popover?.close()
+            guard let popover else { return }
+            popover.close()
+            forgetPopover()
+        }
+
+        /// AppKit closes a semitransient popover on its own when the user clicks elsewhere.
+        nonisolated func popoverDidClose(_ notification: Notification) {
+            MainActor.assumeIsolated {
+                guard let closed = notification.object as? NSPopover, closed === popover else { return }
+                forgetPopover()
+            }
+        }
+
+        private func forgetPopover() {
             popover = nil
             popoverLint = nil
+            drawUnderlines()
+        }
+
+        /// After a check, keeps the popover on its problem, or closes it when the problem is gone
+        /// (fixed, ignored, or its rule turned off).
+        func followLints() {
+            if let popoverLint {
+                if let current = model.lints.first(where: { $0.isSame(as: popoverLint) }) {
+                    self.popoverLint = current
+                } else {
+                    closePopover()
+                    return
+                }
+            }
             drawUnderlines()
         }
 
@@ -271,7 +311,8 @@ struct EditorTextView: NSViewRepresentable {
         /// Control-Command-Y: the first suggestion for the problem at the caret.
         func acceptAtCaret() {
             guard let textView else { return }
-            let target = popoverLint ?? lint(at: textView.selectedRange().location)
+            let shown = popover?.isShown == true ? popoverLint : nil
+            let target = shown ?? lint(at: textView.selectedRange().location)
             guard let target, !target.popup.suggestions.isEmpty else {
                 NSSound.beep()
                 return
@@ -305,6 +346,8 @@ struct EditorTextView: NSViewRepresentable {
 
 struct ProblemsSidebar: View {
     @ObservedObject var model: EditorModel
+    /// The header shares the title bar's row, level with the window controls.
+    var headerHeight: CGFloat = 28
 
     var body: some View {
         VStack(spacing: 0) {
@@ -325,10 +368,11 @@ struct ProblemsSidebar: View {
                 .fixedSize()
                 .disabled(model.lints.isEmpty)
                 .help("More actions")
+                .accessibilityLabel("More actions")
             }
             .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+            .frame(height: headerHeight)
+            .padding(.bottom, 6)
 
             if !model.kinds.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -363,6 +407,7 @@ struct ProblemsSidebar: View {
                     ProblemRow(lint: lint, model: model)
                         .contentShape(Rectangle())
                         .onTapGesture { model.reveal(lint) }
+                        .accessibilityAction(named: "Show in Text") { model.reveal(lint) }
                 }
                 .listStyle(.inset)
             }
@@ -471,10 +516,12 @@ struct EditorStatusBar: View {
                     Image(systemName: "textformat.size.smaller")
                 }
                 .help("Smaller text")
+                .accessibilityLabel("Smaller text")
                 Button { model.fontSize = min(32, model.fontSize + 1) } label: {
                     Image(systemName: "textformat.size.larger")
                 }
                 .help("Larger text")
+                .accessibilityLabel("Larger text")
             }
             .buttonStyle(.borderless)
             Button {
@@ -484,6 +531,7 @@ struct EditorStatusBar: View {
             }
             .buttonStyle(.borderless)
             .help(model.showsProblems ? "Hide Problems" : "Show Problems")
+            .accessibilityLabel(model.showsProblems ? "Hide Problems" : "Show Problems")
         }
         .font(.callout)
         .foregroundStyle(.secondary)

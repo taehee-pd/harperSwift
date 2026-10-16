@@ -138,7 +138,8 @@ fn set_selected_text(element: &AXUIElement, text: &str) -> bool {
 
 /// Where the user's selection should end up after `edited` (UTF-16) became `inserted_len` units
 /// long: before the edit it stays, after it it shifts by the change in length, and a selection
-/// that overlapped the edit collapses to the end of the inserted text.
+/// that overlapped the edit collapses to the end of the inserted text. A caret right at the start
+/// of the edit counts as inside it, since that caret is what opened the suggestion.
 fn selection_after_edit(
     selection: Utf16Range,
     edited: Utf16Range,
@@ -147,7 +148,9 @@ fn selection_after_edit(
     let edited_end = edited.location + edited.length;
     let selection_end = selection.location + selection.length;
 
-    if selection_end <= edited.location {
+    let is_before = selection_end < edited.location
+        || (selection.length > 0 && selection_end == edited.location);
+    if is_before {
         selection
     } else if selection.location >= edited_end {
         Utf16Range {
@@ -162,24 +165,31 @@ fn selection_after_edit(
     }
 }
 
+/// What [`replace_span`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Replacement {
+    Replaced,
+    /// The field no longer holds the expected text (the user kept typing), so the span would
+    /// point at the wrong characters. Nothing was changed.
+    TextChanged,
+    /// The app does not let Accessibility edit through the selection. Nothing was changed.
+    Unsupported,
+}
+
 /// Replaces the characters in `span` of `expected_text` with `replacement`, through the selection.
-///
-/// Does nothing and returns `false` when the field no longer holds `expected_text` (the user kept
-/// typing, so the span would point at the wrong characters) or when the app does not let
-/// Accessibility set the selection. The user's selection is put back where it was, shifted for the
-/// edit.
+/// The user's selection is put back where it was, shifted for the edit.
 pub fn replace_span(
     element: &AXUIElement,
     expected_text: &str,
     span: Span<char>,
     replacement: &str,
-) -> bool {
+) -> Replacement {
     let current = element
         .value()
         .ok()
         .and_then(|value| cf_type_to_string(&value));
     if current.as_deref() != Some(expected_text) {
-        return false;
+        return Replacement::TextChanged;
     }
 
     let start = utf16_offset(expected_text, span.start);
@@ -189,8 +199,14 @@ pub fn replace_span(
     };
     let previous_selection = selected_range(element);
 
-    if !set_selected_range(element, edited) || !set_selected_text(element, replacement) {
-        return false;
+    if !set_selected_range(element, edited) {
+        return Replacement::Unsupported;
+    }
+    if !set_selected_text(element, replacement) {
+        if let Some(previous) = previous_selection {
+            set_selected_range(element, previous);
+        }
+        return Replacement::Unsupported;
     }
 
     let inserted_len = replacement.encode_utf16().count();
@@ -203,7 +219,7 @@ pub fn replace_span(
     );
     set_selected_range(element, selection);
 
-    true
+    Replacement::Replaced
 }
 
 #[cfg(test)]
@@ -258,6 +274,27 @@ mod tests {
         assert_eq!(
             selection_after_edit(range(6, 0), range(5, 3), 4),
             range(9, 0)
+        );
+    }
+
+    #[test]
+    fn moves_a_caret_at_the_start_of_the_edit_to_its_end() {
+        assert_eq!(
+            selection_after_edit(range(5, 0), range(5, 3), 4),
+            range(9, 0)
+        );
+        // An insertion: the caret ends up after the inserted text, as if it had been typed.
+        assert_eq!(
+            selection_after_edit(range(5, 0), range(5, 0), 1),
+            range(6, 0)
+        );
+    }
+
+    #[test]
+    fn keeps_a_selection_that_ends_where_the_edit_starts() {
+        assert_eq!(
+            selection_after_edit(range(1, 4), range(5, 3), 4),
+            range(1, 4)
         );
     }
 
