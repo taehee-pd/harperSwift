@@ -1,3 +1,6 @@
+// Modified in this fork (taehee-pd/harperSwift): `ActionableLint` records whether the caret moved
+// into it, which opens the native macOS popup.
+
 use crate::color::Color;
 use harper_core::linting::{Lint, Suggestion};
 
@@ -66,6 +69,8 @@ pub struct ActionableLint {
     pub lint: Lint,
     pub source_text: String,
     apply_suggestion: Option<Box<dyn FnOnce(Suggestion)>>,
+    /// Fork: the caret moved into this lint without typing, so its popup should open.
+    pub caret_moved_in: bool,
 }
 
 impl PositionedLint {
@@ -88,7 +93,15 @@ impl ActionableLint {
             lint,
             source_text,
             apply_suggestion: Some(Box::new(apply_suggestion)),
+            caret_moved_in: false,
         }
+    }
+
+    /// Fork: marks a lint the caret moved into (see `caret_moved_in`).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn with_caret_moved_in(mut self, caret_moved_in: bool) -> Self {
+        self.caret_moved_in = caret_moved_in;
+        self
     }
 
     pub fn apply_suggestion(&mut self, suggestion: Suggestion) {

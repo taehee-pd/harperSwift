@@ -1,3 +1,7 @@
+// Modified in this fork (taehee-pd/harperSwift): suggestions are applied through the selection
+// (`text_selection.rs`) so rich text keeps its formatting, and lints at the caret follow
+// `caret_tracker.rs` (hidden while typing, marked when the caret moves in).
+
 use accessibility::attribute::AXUIElementAttributes;
 use accessibility::ui_element::AXUIElement;
 use accessibility::{Error, TreeVisitor, TreeWalker, TreeWalkerFlow};
@@ -10,6 +14,7 @@ use accessibility_sys::{
 use core::{ffi::c_void, mem::MaybeUninit};
 use core_foundation::base::{CFRange, CFType, TCFType};
 use core_foundation::string::CFString;
+use harper_core::Span;
 use harper_core::linting::{Lint, Suggestion};
 use objc2_foundation::NSRect;
 use std::{
@@ -20,6 +25,8 @@ use std::{
 use crate::rect::{ActionableLint, Rect};
 
 use super::LintCallback;
+use super::caret_tracker::{CaretRelation, CaretState, CaretTracker};
+use super::text_selection::caret_char_index;
 
 /// Outcome of asking macOS for the bounds of a text range.
 pub enum TextRangeBoundsProbe {
@@ -139,6 +146,8 @@ pub struct RectCollector<'a> {
     expected_rect_count: Cell<usize>,
     read_failed: Cell<bool>,
     lint_text: RefCell<&'a mut LintCallback<'a>>,
+    /// Fork: follows the caret in the first text field of the walk, which is the focused one.
+    caret_tracker: RefCell<Option<&'a mut CaretTracker<AXUIElement>>>,
 }
 
 impl TreeVisitor for RectCollector<'_> {
@@ -154,11 +163,17 @@ impl TreeVisitor for RectCollector<'_> {
 
         let string =
             unsafe { CFString::wrap_under_get_rule(value.as_CFTypeRef() as _).to_string() };
+        let caret = self.observe_caret(element, &string);
         let mut rects = self.rects.borrow_mut();
         let organized_lints = (self.lint_text.borrow_mut())(&string);
 
         for (rule_name, lints) in organized_lints {
             for lint in lints {
+                let caret_relation = caret.relation(lint.span);
+                if caret_relation == CaretRelation::Typing {
+                    continue;
+                }
+
                 self.expected_rect_count
                     .set(self.expected_rect_count.get() + 1);
 
@@ -173,20 +188,23 @@ impl TreeVisitor for RectCollector<'_> {
                     let suggestion_source_text = string.clone();
                     let suggestion_lint = lint.clone();
 
-                    rects.push(ActionableLint::new(
-                        rect,
-                        rule_name.clone(),
-                        lint,
-                        source_text,
-                        move |suggestion| {
-                            apply_suggestion_to_element(
-                                element,
-                                suggestion_source_text,
-                                suggestion_lint,
-                                suggestion,
-                            );
-                        },
-                    ));
+                    rects.push(
+                        ActionableLint::new(
+                            rect,
+                            rule_name.clone(),
+                            lint,
+                            source_text,
+                            move |suggestion| {
+                                apply_suggestion_to_element(
+                                    element,
+                                    suggestion_source_text,
+                                    suggestion_lint,
+                                    suggestion,
+                                );
+                            },
+                        )
+                        .with_caret_moved_in(caret_relation == CaretRelation::Visiting),
+                    );
                 }
             }
         }
@@ -197,12 +215,27 @@ impl TreeVisitor for RectCollector<'_> {
 }
 
 impl<'a> RectCollector<'a> {
-    pub fn new(lint_text: &'a mut LintCallback) -> Self {
+    pub fn new(
+        lint_text: &'a mut LintCallback,
+        caret_tracker: &'a mut CaretTracker<AXUIElement>,
+    ) -> Self {
         Self {
             rects: RefCell::new(Vec::new()),
             expected_rect_count: Cell::new(0),
             read_failed: Cell::new(false),
             lint_text: RefCell::new(lint_text),
+            caret_tracker: RefCell::new(Some(caret_tracker)),
+        }
+    }
+
+    /// Reports the caret of the first text field read; other fields count as having none.
+    fn observe_caret(&self, element: &AXUIElement, text: &str) -> CaretState {
+        match self.caret_tracker.borrow_mut().take() {
+            Some(tracker) => tracker.observe(element, text, caret_char_index(element, text)),
+            None => CaretState {
+                caret: None,
+                motion: super::caret_tracker::CaretMotion::Arrived,
+            },
         }
     }
 
@@ -223,6 +256,20 @@ fn apply_suggestion_to_element(
     lint: Lint,
     suggestion: Suggestion,
 ) {
+    // Fork: edit only the flagged range through the selection, which keeps rich text formatting
+    // and the caret. Fall back to rewriting the whole value only when the app does not allow it.
+    let (span, replacement) = match &suggestion {
+        Suggestion::ReplaceWith(chars) => (lint.span, chars.iter().collect::<String>()),
+        Suggestion::InsertAfter(chars) => (
+            Span::new(lint.span.end, lint.span.end),
+            chars.iter().collect::<String>(),
+        ),
+        Suggestion::Remove => (lint.span, String::new()),
+    };
+    if super::text_selection::replace_span(&element, &source_text, span, &replacement) {
+        return;
+    }
+
     let mut chars = source_text.chars().collect::<Vec<_>>();
     suggestion.apply(lint.span, &mut chars);
     let updated = chars.into_iter().collect::<String>();

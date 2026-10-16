@@ -14,7 +14,7 @@ use action::NativeAction;
 use mouse::{PressCounter, Presses};
 use payload::{AnchorRect, PopupContent, PopupPayload};
 
-use harper_core::linting::Lint;
+use harper_core::{Span, linting::Lint};
 
 use super::render_state::{HitTarget, RenderState};
 use crate::rect::ActionableLint;
@@ -165,6 +165,10 @@ pub struct NativePopup {
     shown: Option<ShownPopup>,
     last_id: u64,
     presses: PressCounter,
+    /// The lint the caret was in at the last frame.
+    caret_lint: Option<(usize, Span<char>)>,
+    /// Whether the open popup was opened by the caret, which then also closes it on leaving.
+    opened_by_caret: bool,
 }
 
 impl NativePopup {
@@ -175,6 +179,8 @@ impl NativePopup {
             shown: None,
             last_id: 0,
             presses: PressCounter::new(),
+            caret_lint: None,
+            opened_by_caret: false,
         }
     }
 
@@ -187,6 +193,7 @@ impl NativePopup {
     ) {
         self.apply_actions(render_state);
         self.handle_clicks(render_state, cursor_position);
+        self.follow_caret(render_state);
 
         match next_step(
             self.shown.as_ref(),
@@ -261,6 +268,28 @@ impl NativePopup {
             ClickOutcome::Ignore => {}
             ClickOutcome::Select(index) => render_state.set_highlighted_lint(Some(index)),
             ClickOutcome::Close => render_state.close_popup(),
+        }
+    }
+
+    /// Opens the popup for a lint the caret moved into (arrow keys, a click), and closes a popup
+    /// the caret opened once the caret leaves that lint.
+    fn follow_caret(&mut self, render_state: &mut RenderState) {
+        let caret_lint = render_state.caret_lint();
+        if caret_lint == self.caret_lint {
+            return;
+        }
+        self.caret_lint = caret_lint;
+
+        match caret_lint {
+            Some((index, _)) => {
+                render_state.set_highlighted_lint(Some(index));
+                self.opened_by_caret = true;
+            }
+            None if self.opened_by_caret => {
+                render_state.close_popup();
+                self.opened_by_caret = false;
+            }
+            None => {}
         }
     }
 

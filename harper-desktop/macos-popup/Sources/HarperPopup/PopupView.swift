@@ -72,11 +72,17 @@ private struct PopupCard: View {
                 Button {
                     onAction(.applySuggestion(index))
                 } label: {
-                    Text(PopupText.suggestion(suggestion, flaggedText: data.flaggedText))
+                    HStack(spacing: 6) {
+                        Text(PopupText.suggestion(suggestion, flaggedText: data.flaggedText))
+                        if index == 0 {
+                            ShortcutHint()
+                        }
+                    }
                 }
                 .buttonStyle(SuggestionButtonStyle(isPrimary: index == 0))
-                .help(suggestion.description)
+                .help(index == 0 ? "\(suggestion.description) (\(AcceptShortcut.symbols))" : suggestion.description)
                 .accessibilityLabel(suggestion.description)
+                .accessibilityHint(index == 0 ? "Control-Command-Y" : "")
             }
         }
     }
@@ -284,6 +290,16 @@ struct SuggestionButtonStyle: ButtonStyle {
             }
             return Color.primary.opacity(isHovered ? 0.12 : 0.08)
         }
+    }
+}
+
+/// The accept shortcut, drawn the way menus show shortcuts: lighter than the label beside it.
+struct ShortcutHint: View {
+    var body: some View {
+        Text(AcceptShortcut.symbols)
+            .font(.system(size: 11, weight: .medium))
+            .opacity(0.65)
+            .accessibilityHidden(true)
     }
 }
 
