@@ -8,6 +8,7 @@ mod app_catalog;
 mod app_icons;
 mod caret_tracker;
 mod core_foundation_utilities;
+mod estimated_bounds;
 mod focused_target;
 mod focused_window_pid;
 mod text_selection;

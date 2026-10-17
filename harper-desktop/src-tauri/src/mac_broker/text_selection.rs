@@ -5,20 +5,28 @@
 //! Markdown editors) and moves the caret; replacing only the selected range keeps both, and the
 //! app records the edit for Undo.
 //!
+//! Chromium (Chrome, Edge, and Electron apps such as Claude and Slack) selects through
+//! Accessibility but ignores text written through it, so there the fix is typed into the
+//! selection as key events instead.
+//!
 //! Accessibility ranges count UTF-16 code units, while Harper spans count `char`s, so every range
 //! goes through [`utf16_offset`] and [`char_index`].
 
 use accessibility::attribute::AXUIElementAttributes;
 use accessibility::ui_element::AXUIElement;
 use accessibility_sys::{
-    AXUIElementCopyAttributeValue, AXUIElementSetAttributeValue, AXValueCreate, AXValueGetType,
-    AXValueGetValue, AXValueRef, kAXErrorSuccess, kAXSelectedTextAttribute,
+    AXUIElementCopyAttributeValue, AXUIElementGetPid, AXUIElementSetAttributeValue, AXValueCreate,
+    AXValueGetType, AXValueGetValue, AXValueRef, kAXErrorSuccess, kAXSelectedTextAttribute,
     kAXSelectedTextRangeAttribute, kAXValueTypeCFRange,
 };
 use core::{ffi::c_void, mem::MaybeUninit, ptr};
 use core_foundation::base::{CFRange, CFType, TCFType};
 use core_foundation::string::CFString;
+use core_graphics::event::{CGEvent, CGEventFlags, CGKeyCode};
+use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use harper_core::Span;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use super::accessibility_text::cf_type_to_string;
 
@@ -202,6 +210,26 @@ pub fn replace_span(
     if !set_selected_range(element, edited) {
         return Replacement::Unsupported;
     }
+    if is_chromium(element) {
+        // Chromium (Chrome, Edge, and Electron apps such as Claude and Slack) selects through
+        // Accessibility but ignores text written through it, so the fix is typed into the
+        // selection. The caret ends after the fix, as after typing; putting the old selection
+        // back could land before the typed text, which arrives later.
+        let started = Instant::now();
+        let selected = wait_for_selection(element, edited);
+        eprintln!(
+            "Chromium fix: selection {} after {} ms",
+            if selected { "applied" } else { "not applied" },
+            started.elapsed().as_millis()
+        );
+        if selected && type_text(element, replacement) {
+            return Replacement::Replaced;
+        }
+        if let Some(previous) = previous_selection {
+            set_selected_range(element, previous);
+        }
+        return Replacement::Unsupported;
+    }
     if !set_selected_text(element, replacement) {
         if let Some(previous) = previous_selection {
             set_selected_range(element, previous);
@@ -222,9 +250,110 @@ pub fn replace_span(
     Replacement::Replaced
 }
 
+/// Whether `element` is Chromium web content, which marks its elements with this attribute.
+fn is_chromium(element: &AXUIElement) -> bool {
+    element.attribute_names().is_ok_and(|names| {
+        names
+            .iter()
+            .any(|name| name.to_string() == "ChromeAXNodeId")
+    })
+}
+
+/// Waits for Chromium to apply a selection, which it does a moment after accepting it.
+fn wait_for_selection(element: &AXUIElement, range: Utf16Range) -> bool {
+    let deadline = Instant::now() + Duration::from_millis(300);
+    loop {
+        if selected_range(element) == Some(range) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+const DELETE_KEY: CGKeyCode = 0x33;
+
+/// Types `text` into the app that owns `element`, replacing its selection; no text deletes the
+/// selection. The events carry no modifier keys, so Control and Command held down for
+/// Control-Command-Y do not turn the typing into shortcuts.
+fn type_text(element: &AXUIElement, text: &str) -> bool {
+    let Some(chunks) = typing_chunks(text) else {
+        return false;
+    };
+    let mut pid = 0;
+    if unsafe { AXUIElementGetPid(element.as_concrete_TypeRef(), &mut pid) } != kAXErrorSuccess {
+        return false;
+    }
+
+    let key = |keycode: CGKeyCode, chunk: Option<&[u16]>| {
+        [true, false].into_iter().all(|down| {
+            let Ok(source) = CGEventSource::new(CGEventSourceStateID::Private) else {
+                return false;
+            };
+            let Ok(event) = CGEvent::new_keyboard_event(source, keycode, down) else {
+                return false;
+            };
+            event.set_flags(CGEventFlags::empty());
+            if let Some(chunk) = chunk {
+                event.set_string_from_utf16_unchecked(chunk);
+            }
+            event.post_to_pid(pid);
+            true
+        })
+    };
+
+    if chunks.is_empty() {
+        return key(DELETE_KEY, None);
+    }
+    chunks.iter().all(|chunk| key(0, Some(chunk)))
+}
+
+/// `text` as UTF-16 pieces of at most 20 units, the most one key event reliably carries, never
+/// splitting a character. `None` for text with control characters: a typed line break would send
+/// a chat message, and a tab would move focus.
+fn typing_chunks(text: &str) -> Option<Vec<Vec<u16>>> {
+    if text.chars().any(char::is_control) {
+        return None;
+    }
+    let mut chunks: Vec<Vec<u16>> = Vec::new();
+    for character in text.chars() {
+        let mut units = [0; 2];
+        let units = character.encode_utf16(&mut units);
+        match chunks.last_mut() {
+            Some(chunk) if chunk.len() + units.len() <= 20 => chunk.extend_from_slice(units),
+            _ => chunks.push(units.to_vec()),
+        }
+    }
+    Some(chunks)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn types_text_in_pieces_without_splitting_characters() {
+        assert_eq!(typing_chunks(""), Some(vec![]));
+        assert_eq!(
+            typing_chunks("the"),
+            Some(vec!["the".encode_utf16().collect()])
+        );
+
+        let long = "a".repeat(19) + "😀" + "b";
+        let chunks = typing_chunks(&long).unwrap();
+        // The emoji's two units would make 21, so it starts the next piece.
+        assert_eq!(chunks[0].len(), 19);
+        assert_eq!(chunks[1], "😀b".encode_utf16().collect::<Vec<_>>());
+        assert_eq!(chunks.concat(), long.encode_utf16().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn never_types_line_breaks_or_tabs() {
+        assert_eq!(typing_chunks("one\ntwo"), None);
+        assert_eq!(typing_chunks("one\ttwo"), None);
+    }
 
     #[test]
     fn counts_utf16_units_for_characters_outside_the_bmp() {

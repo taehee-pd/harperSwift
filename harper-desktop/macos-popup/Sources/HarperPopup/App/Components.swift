@@ -86,20 +86,6 @@ struct SymbolTile: View {
     }
 }
 
-/// A title in the window's toolbar band, where System Settings shows the page name.
-struct ToolbarTitle: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: 15, weight: .semibold))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .frame(height: 52)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
 /// Sets the title of the window that shows this view; the unified toolbar displays it over the
 /// detail column, where System Settings shows the page name.
 struct WindowTitle: NSViewRepresentable {
@@ -113,25 +99,6 @@ struct WindowTitle: NSViewRepresentable {
                 view.window?.title = title
             }
         }
-    }
-}
-
-/// The frosted, see-through material of the system sidebars, for a whole window background. It
-/// blurs what is behind the window, dims while the window is inactive, and turns solid when the
-/// user asks for reduced transparency, all like the system's own.
-struct WindowGlass: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .sidebar
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
     }
 }
 

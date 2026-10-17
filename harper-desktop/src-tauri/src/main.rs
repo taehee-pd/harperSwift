@@ -2,9 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 // Modified in this fork (taehee-pd/harperSwift): on macOS, `lint_text` also merges Clarity
-// suggestions, the config refresh syncs the Clarity setting (`clarity/`), and Settings, the
-// first-run setup and the editor are native SwiftUI windows (`native_ui/`), and checking starts as
-// soon as Accessibility access arrives, even after launch (`accessibility_watch.rs`).
+// suggestions, the config refresh syncs the Clarity setting (`clarity/`) and keeps the linter
+// while its inputs are unchanged, Settings, the first-run setup and the editor are native SwiftUI
+// windows (`native_ui/`), and checking starts as soon as Accessibility access arrives, even after
+// launch (`accessibility_watch.rs`).
 
 mod debug_broker;
 mod tray;
@@ -20,15 +21,13 @@ use crate::config::{Config, Integration};
 use crate::debounce::{DebounceState, DebounceStatus};
 use clap::Parser;
 use harper_core::{
-    Dialect, DictWordMetadata, Document, IgnoredLints,
-    linting::{Lint, LintGroup},
-    spell::MutableDictionary,
+    Dialect, DictWordMetadata, Document, IgnoredLints, linting::Lint, spell::MutableDictionary,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io::stderr;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{Arc, Mutex as StdMutex, RwLock},
 };
@@ -296,6 +295,7 @@ pub fn run_highlighter(has_parent: bool) {
     };
 
     let startup_linter = startup_config.create_linter();
+    let linter_fingerprint = Rc::new(Cell::new(startup_config.linter_fingerprint()));
     let ignored_lints = Rc::new(RefCell::new(startup_config.ignored_lints));
     let user_dictionary = Rc::new(RefCell::new(startup_config.mutable_dictionary));
     let dialect = Rc::new(RefCell::new(startup_config.dialect));
@@ -341,6 +341,7 @@ pub fn run_highlighter(has_parent: bool) {
     let dictionary_runtime = sync_runtime.clone();
     let dictionary_user_dictionary = user_dictionary.clone();
     let dictionary_linter = linter.clone();
+    let dictionary_linter_fingerprint = linter_fingerprint.clone();
     let dictionary_dialect = dialect.clone();
     let dictionary_debounce_ms = debounce_ms.clone();
 
@@ -359,6 +360,7 @@ pub fn run_highlighter(has_parent: bool) {
     let refresh_integrations = integrations.clone();
     let refresh_debounce_ms = debounce_ms.clone();
     let refresh_linter = linter.clone();
+    let refresh_linter_fingerprint = linter_fingerprint.clone();
 
     let lint_text = move |text: &str| {
         let debounce_ms = *lint_debounce_ms.borrow();
@@ -430,6 +432,7 @@ pub fn run_highlighter(has_parent: bool) {
             clarity: Default::default(),
         };
         *dictionary_linter.borrow_mut() = config.create_linter();
+        dictionary_linter_fingerprint.set(config.linter_fingerprint());
 
         if let Err(error) = dictionary_runtime.block_on(
             dictionary_client
@@ -476,15 +479,27 @@ pub fn run_highlighter(has_parent: bool) {
             &mut refresh_client.lock().expect("IPC client lock poisoned"),
             &refresh_runtime,
         ) {
-            Ok(config) => apply_highlighter_config(
-                config,
-                &refresh_ignored_lints,
-                &refresh_user_dictionary,
-                &refresh_dialect,
-                &refresh_integrations,
-                &refresh_debounce_ms,
-                &refresh_linter,
-            ),
+            Ok(config) => {
+                // Fork: this runs every second on the highlighter's main thread, and building a
+                // linter takes a while. Build one only when its dictionary or dialect changes;
+                // new rule settings are swapped in, and only when they differ, because the
+                // linter's cache is keyed by them.
+                let fingerprint = config.linter_fingerprint();
+                if fingerprint != refresh_linter_fingerprint.get() {
+                    *refresh_linter.borrow_mut() = config.create_linter();
+                    refresh_linter_fingerprint.set(fingerprint);
+                } else if refresh_linter.borrow().config != config.lint_config {
+                    refresh_linter.borrow_mut().config = config.lint_config.clone();
+                }
+                apply_highlighter_config(
+                    config,
+                    &refresh_ignored_lints,
+                    &refresh_user_dictionary,
+                    &refresh_dialect,
+                    &refresh_integrations,
+                    &refresh_debounce_ms,
+                )
+            }
             Err(error) => {
                 eprintln!("failed to refresh highlighter config: {error}");
                 std::process::exit(1);
@@ -591,9 +606,7 @@ fn apply_highlighter_config(
     dialect: &Rc<RefCell<Dialect>>,
     integrations: &Arc<StdMutex<IntegrationState>>,
     debounce_ms: &Rc<RefCell<u64>>,
-    linter: &Rc<RefCell<LintGroup>>,
 ) {
-    let linter_config = config.create_linter();
     *ignored_lints.borrow_mut() = config.ignored_lints;
     *user_dictionary.borrow_mut() = config.mutable_dictionary;
     *dialect.borrow_mut() = config.dialect;
@@ -607,5 +620,4 @@ fn apply_highlighter_config(
         Err(error) => eprintln!("failed to update integrations: {error}"),
     }
     *debounce_ms.borrow_mut() = config.debounce_ms;
-    *linter.borrow_mut() = linter_config;
 }

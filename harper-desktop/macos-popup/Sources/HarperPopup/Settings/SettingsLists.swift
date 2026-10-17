@@ -133,6 +133,8 @@ struct RulesPane: View {
 
     @State private var query = ""
     @State private var expanded: Set<String> = []
+    /// Groups closed during the current search, which otherwise shows every group open.
+    @State private var closedWhileSearching: Set<String> = []
     @State private var confirmation: Confirmation?
 
     private enum Confirmation: Identifiable {
@@ -174,7 +176,7 @@ struct RulesPane: View {
                         .disabled(model.enabledRuleCount == 0)
                 }
             } footer: {
-                Text(summary).foregroundStyle(.secondary)
+                Text(summary).foregroundStyle(.secondary).monospacedDigit()
             }
 
             if model.ruleGroups.isEmpty {
@@ -184,19 +186,21 @@ struct RulesPane: View {
             }
 
             ForEach(visibleGroups) { group in
+                // Each rule is its own row, so the form draws a separator between rules.
                 Section {
-                    DisclosureGroup(isExpanded: expansion(of: group)) {
+                    GroupHeader(group: group, model: model, isExpanded: expansion(of: group))
+                    if isExpanded(group) {
                         ForEach(group.rules) { rule in
                             RuleRow(rule: rule) { model.setRules([rule.id], enabled: $0) }
+                                .padding(.leading, GroupHeader.titleIndent)
                         }
-                    } label: {
-                        GroupHeader(group: group, model: model)
                     }
                 }
             }
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+        .onChange(of: query) { _ in closedWhileSearching = [] }
         .confirmationDialog(
             confirmation == .turnAllOff ? "Turn off every rule?" : "Restore the default rules?",
             isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }),
@@ -225,36 +229,70 @@ struct RulesPane: View {
             + (changed > 0 ? ", \(changed) changed from the defaults." : ".")
     }
 
+    private func isExpanded(_ group: RuleGroup) -> Bool {
+        searching ? !closedWhileSearching.contains(group.id) : expanded.contains(group.id)
+    }
+
     private func expansion(of group: RuleGroup) -> Binding<Bool> {
         Binding(
-            get: { searching || expanded.contains(group.id) },
+            get: { isExpanded(group) },
             set: { isExpanded in
-                if isExpanded { expanded.insert(group.id) } else { expanded.remove(group.id) }
+                if searching {
+                    if isExpanded { closedWhileSearching.remove(group.id) } else { closedWhileSearching.insert(group.id) }
+                } else {
+                    if isExpanded { expanded.insert(group.id) } else { expanded.remove(group.id) }
+                }
             }
         )
     }
 }
 
+/// The group's title row. Clicking it shows or hides the group's rules.
 private struct GroupHeader: View {
     let group: RuleGroup
     @ObservedObject var model: SettingsModel
+    @Binding var isExpanded: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let chevronWidth: CGFloat = 12
+    private static let chevronSpacing: CGFloat = 8
+    /// Where the title starts, past the chevron. The group's rules line up with it.
+    static let titleIndent = chevronWidth + chevronSpacing
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(group.title).fontWeight(.semibold)
-                    Text("\(group.rules.filter(\.enabled).count) of \(group.rules.count) on")
-                        .font(.callout)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: Self.chevronSpacing) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: Self.chevronWidth)
+                    // The same title and explanation sizes as `RowLabel`.
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(group.title).font(.headline)
+                            Text("\(group.rules.filter(\.enabled).count) of \(group.rules.count) on")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Text(group.description)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                Text(group.description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            Spacer()
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint(isExpanded ? "Hides the rules in this group" : "Shows the rules in this group")
+
             RowMenu(label: "Change every rule in \(group.title)") {
                 let ids = Set(group.rules.map(\.id))
                 Button("Turn All On") { model.setRules(ids, enabled: true) }

@@ -77,7 +77,11 @@ impl CheckSettings {
     /// Changes whenever anything that affects the results changes.
     fn fingerprint(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
-        self.lint_config.hash(&mut hasher);
+        // `FlatConfig`'s own `Hash` follows its map's order, which differs between copies with
+        // the same rules; serializing sorts them.
+        serde_json::to_string(&self.lint_config)
+            .unwrap_or_default()
+            .hash(&mut hasher);
         self.dialect.hash(&mut hasher);
         serde_json::to_string(&self.ignored_lints)
             .unwrap_or_default()

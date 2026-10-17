@@ -54,6 +54,15 @@ enum EditorFont: String, CaseIterable, Identifiable {
 
 /// The editor's text and problems. Text is checked a moment after typing stops, with the same
 /// rules and dictionary as everywhere else, and is kept between launches.
+/// The problems of one kind, for a section of the Problems panel.
+struct KindGroup: Identifiable {
+    let name: String
+    let color: PopupData.RGB
+    var lints: [EditorLint]
+
+    var id: String { name }
+}
+
 @MainActor
 final class EditorModel: ObservableObject {
     private static let draftKey = "HarperEditorDraft"
@@ -63,7 +72,6 @@ final class EditorModel: ObservableObject {
 
     @Published private(set) var text: String
     @Published private(set) var lints: [EditorLint] = []
-    @Published var kindFilter: String?
     @Published var failure: String?
 
     @Published var showsProblems: Bool {
@@ -92,21 +100,17 @@ final class EditorModel: ObservableObject {
         scheduleLint(after: 0)
     }
 
-    var visibleLints: [EditorLint] {
-        guard let kindFilter else { return lints }
-        return lints.filter { $0.popup.kindName == kindFilter }
-    }
-
-    /// Kinds present in the text, with counts, in order of appearance.
-    var kinds: [(name: String, color: PopupData.RGB, count: Int)] {
-        var order: [String] = []
-        var counts: [String: (PopupData.RGB, Int)] = [:]
+    /// The problems grouped by kind, in order of appearance.
+    var kindGroups: [KindGroup] {
+        var groups: [KindGroup] = []
         for lint in lints {
-            let name = lint.popup.kindName
-            if counts[name] == nil { order.append(name) }
-            counts[name, default: (lint.popup.kindColor, 0)].1 += 1
+            if let index = groups.firstIndex(where: { $0.name == lint.popup.kindName }) {
+                groups[index].lints.append(lint)
+            } else {
+                groups.append(KindGroup(name: lint.popup.kindName, color: lint.popup.kindColor, lints: [lint]))
+            }
         }
-        return order.map { (name: $0, color: counts[$0]!.0, count: counts[$0]!.1) }
+        return groups
     }
 
     var wordCount: Int {
@@ -155,9 +159,6 @@ final class EditorModel: ObservableObject {
                 let lints = try await NativeBridge.request("editor.lint", ["text": text], as: [EditorLint].self)
                 guard !Task.isCancelled, text == self.text else { return }
                 self.lints = lints
-                if let kindFilter, !lints.contains(where: { $0.popup.kindName == kindFilter }) {
-                    self.kindFilter = nil
-                }
             } catch {
                 failure = error.localizedDescription
             }

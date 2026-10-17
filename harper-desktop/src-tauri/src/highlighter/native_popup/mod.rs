@@ -172,6 +172,9 @@ fn click_outcome(presses: Presses, on_popup: bool, target: HitTarget) -> ClickOu
     }
 }
 
+/// How long after a key press the text keeps being read with the pointer on the popup.
+const TYPING_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
+
 pub struct NativePopup {
     shown: Option<ShownPopup>,
     last_id: u64,
@@ -195,6 +198,21 @@ impl NativePopup {
             caret_span: None,
             opened_by_caret: false,
         }
+    }
+
+    /// Whether the pointer rests on the open popup and no key was pressed just now. While it
+    /// does, the highlighter stops reading the text and drawing the underline overlay. macOS
+    /// holds a click on the popup until this process answers, and a frame being drawn then
+    /// waits for a drawable that macOS withholds in the meantime, so each click arrived about a
+    /// second late. Typing keeps them going, so a popup opened from the keyboard still follows
+    /// the caret.
+    pub fn pointer_rests_on_popup(
+        &self,
+        cursor_position: impl FnOnce() -> Option<egui::Pos2>,
+    ) -> bool {
+        self.shown.is_some()
+            && mouse::seconds_since_key_down() > TYPING_GRACE.as_secs_f64()
+            && cursor_position().is_some_and(ffi::contains_point)
     }
 
     /// `cursor_position` returns the pointer in Accessibility coordinates; it is only called when

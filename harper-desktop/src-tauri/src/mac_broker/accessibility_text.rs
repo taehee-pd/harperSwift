@@ -1,6 +1,7 @@
 // Modified in this fork (taehee-pd/harperSwift): suggestions are applied through the selection
 // (`text_selection.rs`) so rich text keeps its formatting, and lints at the caret follow
-// `caret_tracker.rs` (hidden while typing, marked when the caret moves in).
+// `caret_tracker.rs` (hidden while typing, marked when the caret moves in), and positions are
+// estimated where Chromium reports none (`estimated_bounds.rs`).
 
 use accessibility::attribute::AXUIElementAttributes;
 use accessibility::ui_element::AXUIElement;
@@ -382,15 +383,23 @@ pub fn element_rect_for_text_range_with_fallback(
         };
         let child_end = child_start + child_chars.len();
 
-        if start_index >= child_start
-            && start_index + length <= child_end
-            && let Ok(Some(rect)) = element_rect_for_text_range(
+        if start_index >= child_start && start_index + length <= child_end {
+            if let Ok(Some(rect)) = element_rect_for_text_range(
                 &child,
                 (start_index - child_start) as isize,
                 length as isize,
-            )
-        {
-            return Some(rect);
+            ) {
+                return Some(rect);
+            }
+            // Fork: some Chromium browsers report no size for any range, only the run's frame.
+            if let Some(rect) = super::estimated_bounds::estimated_rect(
+                &child,
+                &child_text,
+                start_index - child_start,
+                length,
+            ) {
+                return Some(rect);
+            }
         }
 
         cursor = child_end;
