@@ -1,5 +1,3 @@
-<!-- Modified in this fork (taehee-pd/harperSwift): macOS sidebar styling, arrow-key navigation,
-     and aria-current on the selected section. -->
 <script lang="ts">
 import {
 	BookIcon,
@@ -24,88 +22,87 @@ const SECTION_ICONS: Record<SectionId, typeof GearIcon> = {
 	about: InfoIcon,
 };
 
-const ALL_ITEMS = [...MAIN_NAV_ITEMS, ...FOOTER_NAV_ITEMS];
-
 export let active: SectionId;
-
-let nav: HTMLElement;
-
-/** Up and down move between sections, the way a macOS source list does. */
-function handleKeydown(event: KeyboardEvent) {
-	if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-	event.preventDefault();
-
-	const index = ALL_ITEMS.findIndex((item) => item.id === active);
-	const step = event.key === 'ArrowDown' ? 1 : -1;
-	const next = ALL_ITEMS[(index + step + ALL_ITEMS.length) % ALL_ITEMS.length];
-	active = next.id;
-	nav.querySelector<HTMLButtonElement>(`[data-section="${next.id}"]`)?.focus();
-}
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<nav bind:this={nav} class="sidebar" aria-label="Settings sections" on:keydown={handleKeydown}>
-  {#each [MAIN_NAV_ITEMS, FOOTER_NAV_ITEMS] as items, groupIndex}
-    {#if groupIndex > 0}<div class="separator"></div>{/if}
-    <div class="group">
-      {#each items as item}
-        <button
-          type="button"
-          class:selected={active === item.id}
-          class="nav-item"
-          data-section={item.id}
-          aria-current={active === item.id ? 'page' : undefined}
-          on:click={() => (active = item.id)}
-        >
-          <span class="tile" style={`--tile-gradient: ${item.gradient}`}>
-            <svelte:component this={SECTION_ICONS[item.id]} className="settings-icon" />
-          </span>
-          <span class="label">{item.label}</span>
-        </button>
-      {/each}
-    </div>
-  {/each}
+<nav class="sidebar" aria-label="Settings sections">
+  <div class="group">
+    {#each MAIN_NAV_ITEMS as item}
+      <button
+        type="button"
+        class:selected={active === item.id}
+        class="nav-item"
+        on:click={() => (active = item.id)}
+      >
+        <span class="tile" style={`--tile-gradient: ${item.gradient}`}>
+          <svelte:component this={SECTION_ICONS[item.id]} className="settings-icon" />
+        </span>
+        <span class="label">{item.label}</span>
+      </button>
+    {/each}
+  </div>
+
+  <div class="separator"></div>
+
+  <div class="group">
+    {#each FOOTER_NAV_ITEMS as item}
+      <button
+        type="button"
+        class:selected={active === item.id}
+        class="nav-item"
+        on:click={() => (active = item.id)}
+      >
+        <span class="tile" style={`--tile-gradient: ${item.gradient}`}>
+          <svelte:component this={SECTION_ICONS[item.id]} className="settings-icon" />
+        </span>
+        <span class="label">{item.label}</span>
+      </button>
+    {/each}
+  </div>
 </nav>
 
 <style>
   .sidebar {
-    width: 200px;
-    flex: 0 0 200px;
+    width: 190px;
+    flex: 0 0 190px;
+    background: var(--settings-bg-sidebar);
+    border-right: 0.5px solid var(--settings-line-strong);
     display: flex;
     flex-direction: column;
-    border-right: 0.5px solid var(--settings-line-strong);
-    background: var(--settings-bg-sidebar);
-    padding: 14px 10px 12px;
+    padding: 18px 8px 12px;
   }
 
   .group {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
   }
 
   .separator {
-    height: 0.5px;
-    margin: 10px 8px;
-    background: var(--settings-line-strong);
+    height: 1px;
+    margin: 14px 10px 12px;
+    background: var(--settings-line);
   }
 
   .nav-item {
     width: 100%;
-    height: 28px;
+    height: 30px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     border: 0;
     border-radius: 6px;
-    padding: 0 8px 0 6px;
+    padding: 0 10px;
     background: transparent;
     color: var(--settings-ink);
+    font: inherit;
+    font-size: 13px;
     text-align: left;
+    cursor: default;
   }
 
-  .nav-item:active:not(.selected) {
-    background: var(--settings-press);
+  .nav-item:hover {
+    background: rgba(0, 0, 0, 0.045);
   }
 
   .nav-item.selected {
@@ -114,21 +111,21 @@ function handleKeydown(event: KeyboardEvent) {
   }
 
   .tile {
-    width: 20px;
-    height: 20px;
-    flex: 0 0 20px;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
     display: grid;
     place-items: center;
-    border-radius: 5px;
+    border-radius: 6px;
     background: var(--tile-gradient);
     color: #fff;
     box-shadow:
-      0 0.5px 1px rgba(0, 0, 0, 0.12),
-      inset 0 0.5px 0 rgba(255, 255, 255, 0.3);
+      0 1px 1px rgba(0, 0, 0, 0.08),
+      inset 0 0.5px 0 rgba(255, 255, 255, 0.35);
   }
 
   .tile :global(.settings-icon) {
-    transform: scale(0.82);
+    transform: scale(0.78);
   }
 
   .label {

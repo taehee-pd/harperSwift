@@ -1,11 +1,16 @@
+// Modified in this fork (taehee-pd/harperSwift): follows the caret (`caret_tracker.rs`) and
+// applies suggestions through the selection (`text_selection.rs`).
+
 use cached::cached;
 mod accessibility_activation;
 mod accessibility_text;
 mod app_catalog;
 mod app_icons;
+mod caret_tracker;
 mod core_foundation_utilities;
 mod focused_target;
 mod focused_window_pid;
+mod text_selection;
 mod window_stability;
 
 use accessibility::TreeWalker;
@@ -67,6 +72,9 @@ pub struct MacBroker {
     application_icon_cache: Mutex<HashMap<String, Vec<u8>>>,
     window_movement: Option<WindowMovementState>,
     accessibility_activation: Option<AccessibilityActivationState>,
+    /// Fork: tells typing apart from moving the caret between reads. Like `last_focused`, it holds
+    /// AX handles, so only the highlighter creates it, on its own thread.
+    caret_tracker: Option<SendWrapper<caret_tracker::CaretTracker<AXUIElement>>>,
 }
 
 impl MacBroker {
@@ -79,6 +87,7 @@ impl MacBroker {
             application_icon_cache: Mutex::new(HashMap::new()),
             window_movement: None,
             accessibility_activation: None,
+            caret_tracker: None,
         }
     }
 
@@ -351,7 +360,10 @@ impl OsBroker for MacBroker {
         };
 
         let walker = TreeWalker::new();
-        let collector = RectCollector::new(lint_text);
+        let caret_tracker = self
+            .caret_tracker
+            .get_or_insert_with(|| SendWrapper::new(Default::default()));
+        let collector = RectCollector::new(lint_text, caret_tracker);
 
         walker.walk(&focused, &collector);
 

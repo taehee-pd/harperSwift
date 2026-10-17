@@ -79,6 +79,12 @@ pub fn build() {
     println!("cargo:rustc-link-search=native={sdk_path}/usr/lib/swift");
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
 
+    // Optimized `#available` checks call `__isPlatformVersionAtLeast` from the clang runtime,
+    // which a C or Swift link pulls in on its own but Rust's (`-nodefaultlibs`) does not.
+    let clang_resources = run("xcrun", &["clang", "--print-resource-dir"]);
+    println!("cargo:rustc-link-search=native={clang_resources}/lib/darwin");
+    println!("cargo:rustc-link-lib=static=clang_rt.osx");
+
     // Link Rust objects for the same minimum macOS version as the Swift objects.
     println!("cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET={DEPLOYMENT_TARGET}");
 }

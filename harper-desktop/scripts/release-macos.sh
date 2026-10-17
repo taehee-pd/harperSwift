@@ -5,10 +5,12 @@
 # the signed update archive and the `latest.json` manifest the in-app updater reads from this
 # fork's GitHub releases. See RELEASING.md.
 #
+# The macOS app has no web UI (`src-tauri/tauri.macos.conf.json`), so harper.js, the wasm build
+# and the other web packages are not needed.
+#
 # Environment:
 #   TAURI_SIGNING_PRIVATE_KEY_PATH      Updater key (default ~/.tauri/harperswift-updater.key)
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  Its password (default: none)
-#   SKIP_SHARED_PACKAGES=1              Reuse harper.js and the other web packages from an earlier build
 
 set -euo pipefail
 
@@ -26,11 +28,8 @@ VERSION="$(node -p "require('$DESKTOP/src-tauri/tauri.conf.json').version")"
 TAG="v$VERSION"
 echo "Building Harper $VERSION"
 
-if [ "${SKIP_SHARED_PACKAGES:-0}" != 1 ]; then
-  (cd "$ROOT" && just build-harperjs build-lint-framework build-components build-harper-editor)
-fi
-
 cd "$DESKTOP"
+# For the Tauri CLI.
 pnpm install
 # Runs actool with stdin open so it can compile icons/icon.icon (see the script).
 export PATH="$DESKTOP/scripts/actool-shim:$PATH"

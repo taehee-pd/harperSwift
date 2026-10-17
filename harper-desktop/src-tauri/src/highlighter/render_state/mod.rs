@@ -1,6 +1,6 @@
 // Modified in this fork (taehee-pd/harperSwift): exposes popup state and actions to the native
 // macOS popup (`native_popup/`), compiles the egui card out on macOS, draws Clarity lints with a
-// dashed underline, and records Clarity dismissals.
+// dashed underline, records Clarity dismissals, and reports the lint the caret moved into.
 
 mod draw_highlight;
 mod popup_layout;
@@ -148,6 +148,15 @@ impl RenderState {
     pub(super) fn highlighted(&self) -> Option<(usize, &ActionableLint)> {
         self.highlighted_lint
             .and_then(|index| self.lints().get(index).map(|lint| (index, lint)))
+    }
+
+    /// The lint the caret moved into (index and span), for the native macOS popup.
+    #[cfg(target_os = "macos")]
+    pub(super) fn caret_lint(&self) -> Option<(usize, harper_core::Span<char>)> {
+        self.lints()
+            .iter()
+            .position(|lint| lint.caret_moved_in)
+            .map(|index| (index, self.lints()[index].lint.span))
     }
 
     /// Centralizes the close behavior so the popup close button only has to clear the selected lint.

@@ -46,9 +46,15 @@ struct ClarityCard: View {
                     )
                     .accessibilityLabel(changeDescription)
 
-                Button("Accept") { onAction(.applySuggestion(0)) }
+                Button { onAction(.applySuggestion(0)) } label: {
+                    HStack(spacing: 6) {
+                        Text("Accept")
+                        ShortcutHint()
+                    }
+                }
                     .buttonStyle(SuggestionButtonStyle(isPrimary: true))
-                    .help(changeDescription)
+                    .help("\(changeDescription) (\(AcceptShortcut.symbols))")
+                    .accessibilityHint("Control-Command-Y")
                     .accessibilityLabel("Accept: \(changeDescription)")
                     .padding(.top, 2)
             }

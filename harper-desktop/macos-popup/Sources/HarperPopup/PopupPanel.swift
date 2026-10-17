@@ -130,6 +130,7 @@ final class PopupController {
     private var wordCenterX: CGFloat = 0
     private var screenObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private lazy var acceptShortcut = AcceptShortcut { [weak self] in self?.acceptFirstSuggestion() }
 
     private init() {
         hostingView = FirstClickHostingView(rootView: PopupView(data: nil, chrome: chrome, onAction: { _ in }))
@@ -185,6 +186,7 @@ final class PopupController {
 
         phase = .hiding
         stopObserving()
+        acceptShortcut.disable()
         panel.ignoresMouseEvents = true
 
         let generation = generation
@@ -219,10 +221,25 @@ final class PopupController {
 
     private func render(_ data: PopupData) {
         self.data = data
+        // Control-Command-Y stays with the app in front unless there is a suggestion to accept.
+        if data.suggestions.isEmpty {
+            acceptShortcut.disable()
+        } else {
+            acceptShortcut.enable()
+        }
         hostingView.rootView = PopupView(data: data, chrome: chrome) { [weak self] action in
             self?.send(action)
         }
         reposition()
+    }
+
+    /// Control-Command-Y: the same as clicking the first suggestion (or Accept, for Clarity).
+    private func acceptFirstSuggestion() {
+        guard data?.suggestions.isEmpty == false else {
+            NSSound.beep()
+            return
+        }
+        send(.applySuggestion(0))
     }
 
     /// Reports an action to Rust. Rust decides what happens next, including hiding the popup.

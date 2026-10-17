@@ -14,7 +14,7 @@ use action::NativeAction;
 use mouse::{PressCounter, Presses};
 use payload::{AnchorRect, PopupContent, PopupPayload};
 
-use harper_core::linting::Lint;
+use harper_core::{Span, linting::Lint};
 
 use super::render_state::{HitTarget, RenderState};
 use crate::rect::ActionableLint;
@@ -115,6 +115,17 @@ fn next_step(
     }
 }
 
+/// The popup's JSON for `lint`, for the native editor, which shows the same card.
+pub(crate) fn popup_json(id: u64, lint: &ActionableLint) -> serde_json::Value {
+    let content = PopupContent::new(lint);
+    let payload = PopupPayload {
+        id,
+        content: &content,
+        anchor: lint.rect.into(),
+    };
+    serde_json::to_value(&payload).unwrap_or_default()
+}
+
 /// Whether the lint's span lies inside its source text. The shared action handlers index the text
 /// with the span and would panic otherwise, which can happen while lints are briefly cached for
 /// older, longer text during typing.
@@ -165,6 +176,12 @@ pub struct NativePopup {
     shown: Option<ShownPopup>,
     last_id: u64,
     presses: PressCounter,
+    /// The span of the lint the caret was in at the last frame. Lint indexes shift when other
+    /// lints come and go, so only the span says whether the caret really moved.
+    caret_span: Option<Span<char>>,
+    /// Whether the open popup was opened by the caret, which then also closes it on leaving. A
+    /// click or a popup action hands the popup back to the user.
+    opened_by_caret: bool,
 }
 
 impl NativePopup {
@@ -175,6 +192,8 @@ impl NativePopup {
             shown: None,
             last_id: 0,
             presses: PressCounter::new(),
+            caret_span: None,
+            opened_by_caret: false,
         }
     }
 
@@ -187,6 +206,7 @@ impl NativePopup {
     ) {
         self.apply_actions(render_state);
         self.handle_clicks(render_state, cursor_position);
+        self.follow_caret(render_state);
 
         match next_step(
             self.shown.as_ref(),
@@ -211,7 +231,7 @@ impl NativePopup {
     }
 
     /// Runs actions reported by Swift, dropping any that were meant for content no longer shown.
-    fn apply_actions(&self, render_state: &mut RenderState) {
+    fn apply_actions(&mut self, render_state: &mut RenderState) {
         for raw in ffi::take_actions() {
             let Some(shown) = self.shown.as_ref().filter(|shown| shown.id == raw.popup_id) else {
                 continue;
@@ -234,6 +254,7 @@ impl NativePopup {
 
             if let Some(card_action) = card_action {
                 render_state.apply_card_action(shown.index, card_action);
+                self.opened_by_caret = false;
             }
         }
     }
@@ -259,8 +280,37 @@ impl NativePopup {
             render_state.hit_target_at_pos(cursor),
         ) {
             ClickOutcome::Ignore => {}
-            ClickOutcome::Select(index) => render_state.set_highlighted_lint(Some(index)),
-            ClickOutcome::Close => render_state.close_popup(),
+            ClickOutcome::Select(index) => {
+                render_state.set_highlighted_lint(Some(index));
+                self.opened_by_caret = false;
+            }
+            ClickOutcome::Close => {
+                render_state.close_popup();
+                self.opened_by_caret = false;
+            }
+        }
+    }
+
+    /// Opens the popup for a lint the caret moved into (arrow keys, a click), and closes a popup
+    /// the caret opened once the caret leaves that lint.
+    fn follow_caret(&mut self, render_state: &mut RenderState) {
+        let caret_lint = render_state.caret_lint();
+        let caret_span = caret_lint.map(|(_, span)| span);
+        if caret_span == self.caret_span {
+            return;
+        }
+        self.caret_span = caret_span;
+
+        match caret_lint {
+            Some((index, _)) => {
+                render_state.set_highlighted_lint(Some(index));
+                self.opened_by_caret = true;
+            }
+            None if self.opened_by_caret => {
+                render_state.close_popup();
+                self.opened_by_caret = false;
+            }
+            None => {}
         }
     }
 

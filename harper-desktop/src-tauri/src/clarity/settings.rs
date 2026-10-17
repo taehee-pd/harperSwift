@@ -2,21 +2,18 @@
 //!
 //! The Clarity on/off setting and the model's status, kept in sync across the two processes:
 //!
-//! - The Tauri app saves the setting in [`Config`] and shows both in the settings window.
+//! - The Tauri app saves the setting in [`Config`] and shows both in the native Settings window
+//!   (`native_ui/settings.rs`).
 //! - The highlighter runs the model. On every config refresh it reports the model's status,
 //!   sends a "turn off" from the popup, and reads the setting back
 //!   ([`sync_with_app`], over `communication/message.rs`).
 
 use std::cell::RefCell;
 use std::ops::Range;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::ipc::Invoke;
-use tauri::{Runtime, State};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::runtime::Runtime as TokioRuntime;
-use tokio::sync::Mutex;
 
 use super::SentenceKey;
 use super::provider::{Availability, PauseReason, UnavailableReason};
@@ -225,45 +222,11 @@ pub fn describe(status: Option<Availability>) -> String {
     }
 }
 
-/// Adds the Clarity settings commands to the app's command handler.
-pub fn with_commands<R: Runtime>(
-    handler: impl Fn(Invoke<R>) -> bool,
-) -> impl Fn(Invoke<R>) -> bool {
-    let clarity_handler = clarity_command_handler::<R>();
-
-    move |invoke| match invoke.message.command() {
-        "get_clarity_settings" | "set_clarity_enabled" => clarity_handler(invoke),
-        _ => handler(invoke),
-    }
-}
-
-fn clarity_command_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool {
-    tauri::generate_handler![get_clarity_settings, set_clarity_enabled]
-}
-
-#[tauri::command]
-async fn get_clarity_settings(
-    config: State<'_, Arc<Mutex<Config>>>,
-) -> Result<ClaritySettingsView, String> {
-    Ok(ClaritySettingsView::new(&config.lock().await.clarity))
-}
-
-#[tauri::command]
-async fn set_clarity_enabled(
-    enabled: bool,
-    config: State<'_, Arc<Mutex<Config>>>,
-) -> Result<(), String> {
-    let mut config = config.lock().await;
-    config.clarity.enabled = Some(enabled);
-    config
-        .save_to_system()
-        .await
-        .map_err(|error| error.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     #[test]
     fn clarity_is_on_until_the_user_turns_it_off() {

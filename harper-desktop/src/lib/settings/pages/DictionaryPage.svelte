@@ -1,10 +1,7 @@
-<!-- Modified in this fork (taehee-pd/harperSwift): macOS-style layout, inline duplicate check,
-     empty states, and a confirmation before removing every word. -->
 <script lang="ts">
-import { CloseIcon, IconButton, Input, SearchField, SearchIcon } from 'components';
+import { Button, CloseIcon, IconButton, Input, Panel, SearchField, SearchIcon } from 'components';
 import { onMount } from 'svelte';
 import { Client } from '$lib/client';
-import ConfirmButton from '../components/ConfirmButton.svelte';
 
 let dictionary: string[] = [];
 let newDictionaryWord = '';
@@ -17,13 +14,6 @@ let importInput: HTMLInputElement;
 $: filteredWords = dictionary.filter((word: string) =>
 	word.toLowerCase().includes(dictionarySearch.trim().toLowerCase()),
 );
-
-$: isNewWordDuplicate = dictionary.includes(newDictionaryWord.trim());
-$: canAddWord =
-	newDictionaryWord.trim() !== '' &&
-	!isNewWordDuplicate &&
-	!isDictionaryLoading &&
-	!isDictionarySaving;
 
 onMount(() => {
 	void loadDictionary();
@@ -151,122 +141,109 @@ function exportDictionary() {
 }
 
 async function submitDictionaryWord() {
-	if (!canAddWord) {
-		return;
-	}
-
 	const word = newDictionaryWord;
 	newDictionaryWord = '';
 	await addDictionaryWord(word);
-
-	// Give the word back if it could not be added and nothing new was typed.
-	if (dictionaryError && newDictionaryWord === '') {
-		newDictionaryWord = word;
-	}
 }
 </script>
 
 <section>
-  <header class="page-header">
-    <h1>Dictionary</h1>
-    <p class="page-lede">
-      Harper never flags the words in your dictionary. Add names, places, and terms you use often.
-    </p>
-  </header>
+        <div class="stanza">
+          <div class="eyebrow">User Dictionary</div>
+          <p class="section-copy">
+            This is your place to keep words that are personal to you. People, places, and things that might not be in standard English go here. Any words in this list won't be corrected by Harper.
+          </p>
 
-  <div class="form-section">
-    <form class="add-word" on:submit|preventDefault={submitDictionaryWord}>
-      <Input
-        unstyled
-        class="text-field"
-        type="text"
-        placeholder="New word"
-        aria-label="New word"
-        autocomplete="off"
-        spellcheck="false"
-        disabled={isDictionaryLoading}
-        bind:value={newDictionaryWord}
-      />
-      <button class="button primary" type="submit" disabled={!canAddWord}>Add</button>
-    </form>
-    <p class="field-hint" aria-live="polite">
-      {isNewWordDuplicate ? `“${newDictionaryWord.trim()}” is already in your dictionary.` : ''}
-    </p>
+          {#if isDictionaryLoading}
+            <p class="result-summary">Loading dictionary...</p>
+          {:else if dictionaryError}
+            <p class="result-summary">{dictionaryError}</p>
+          {:else if isDictionarySaving}
+            <p class="result-summary">Saving dictionary...</p>
+          {/if}
 
-    <div class="form-group">
-      <div class="list-toolbar">
-        <SearchField class="search-field" placeholder="Search" aria-label="Search your dictionary" bind:value={dictionarySearch}>
-          <SearchIcon slot="leading" className="control-icon" />
-        </SearchField>
-        <span class="list-count">
-          {dictionarySearch.trim()
-            ? `${filteredWords.length} of ${dictionary.length}`
-            : `${dictionary.length} ${dictionary.length === 1 ? 'word' : 'words'}`}
-        </span>
-      </div>
-
-      <div class="list-scroll">
-        {#if isDictionaryLoading && dictionary.length === 0}
-          <div class="empty" role="status">Loading…</div>
-        {:else if dictionary.length === 0}
-          <div class="empty">
-            <strong>No words yet</strong>
-            Words you add here, or with Add to Dictionary in a suggestion, appear in this list.
+          <div class="add-row">
+            <Input
+              unstyled
+              class="text-field"
+              type="text"
+              placeholder="Add a word..."
+              disabled={isDictionaryLoading || isDictionarySaving}
+              bind:value={newDictionaryWord}
+              on:keydown={(event) => event.detail.key === "Enter" && submitDictionaryWord()}
+            />
+            <Button
+              unstyled
+              class="button primary"
+              type="button"
+              disabled={isDictionaryLoading || isDictionarySaving}
+              on:click={submitDictionaryWord}
+            >Add</Button>
           </div>
-        {:else if filteredWords.length === 0}
-          <div class="empty">No words match “{dictionarySearch.trim()}”.</div>
-        {:else}
-          {#each filteredWords as word (word)}
-            <div class="list-row">
-              <span class="grow">{word}</span>
-              <IconButton
-                danger
-                disabled={isDictionaryLoading || isDictionarySaving}
-                aria-label={`Remove ${word}`}
-                title="Remove"
-                on:click={() => removeDictionaryWord(word)}
-              >
-                <CloseIcon className="control-icon" />
-              </IconButton>
-            </div>
-          {/each}
-        {/if}
-      </div>
-    </div>
-    {#if dictionaryError}
-      <p class="form-error" role="alert">{dictionaryError}</p>
-    {/if}
 
-    <div class="actions-row">
-      <input
-        bind:this={importInput}
-        type="file"
-        accept=".txt,.dic,text/plain"
-        hidden
-        on:change={importDictionary}
-      />
-      <button
-        class="button"
-        type="button"
-        disabled={isDictionaryLoading || isDictionarySaving}
-        on:click={() => importInput.click()}
-      >Import…</button>
-      <button
-        class="button"
-        type="button"
-        disabled={isDictionaryLoading || dictionary.length === 0}
-        on:click={exportDictionary}
-      >Export…</button>
-      <span class="spacer"></span>
-      {#if dictionary.length > 0}
-        <ConfirmButton
-          label="Remove All…"
-          question={`Remove all ${dictionary.length} ${dictionary.length === 1 ? 'word' : 'words'}?`}
-          confirmLabel="Remove All"
-          disabled={isDictionaryLoading || isDictionarySaving}
-          onConfirm={clearDictionary}
-        />
-      {/if}
-    </div>
-  </div>
-</section>
+          <Panel>
+            <SearchField
+              class="search-strip"
+              placeholder={`Search ${dictionary.length} words`}
+              bind:value={dictionarySearch}
+            >
+              <SearchIcon slot="leading" className="control-icon" />
+              <span slot="trailing">{filteredWords.length} of {dictionary.length}</span>
+            </SearchField>
+
+            <div class="dictionary-list">
+              {#if filteredWords.length === 0}
+                <div class="empty">No matching words.</div>
+              {:else}
+                {#each filteredWords as word}
+                  <div class="list-row">
+                    <code>{word}</code>
+                    <IconButton
+                      danger
+                      disabled={isDictionaryLoading || isDictionarySaving}
+                      aria-label={`Remove ${word}`}
+                      on:click={() => removeDictionaryWord(word)}
+                    >
+                      <CloseIcon className="control-icon" />
+                    </IconButton>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </Panel>
+
+          <div class="actions-row">
+            <input
+              bind:this={importInput}
+              type="file"
+              accept=".txt,.dic,text/plain"
+              hidden
+              on:change={importDictionary}
+            />
+            <Button
+              unstyled
+              class="button"
+              type="button"
+              disabled={isDictionaryLoading || isDictionarySaving}
+              on:click={() => importInput.click()}
+            >Import from file...</Button>
+            <Button
+              unstyled
+              class="button"
+              type="button"
+              disabled={isDictionaryLoading || isDictionarySaving || dictionary.length === 0}
+              on:click={exportDictionary}
+            >Export dictionary</Button>
+            <span class="spacer"></span>
+            <Button
+              unstyled
+              class="button danger"
+              type="button"
+              disabled={isDictionaryLoading || isDictionarySaving}
+              on:click={clearDictionary}
+            >
+              Clear all
+            </Button>
+          </div>
+        </div>
+      </section>
