@@ -14,8 +14,9 @@ enum AppWindows {
     }
 
     enum Chrome {
-        /// Content under a unified toolbar that shows the SwiftUI title, like System Settings.
-        case sidebar
+        /// Content under a unified toolbar that shows the SwiftUI title and toolbar, like System
+        /// Settings.
+        case toolbar
         /// No visible title bar: the content runs to the top edge, under the window controls.
         case hiddenTitleBar
     }
@@ -40,7 +41,7 @@ enum AppWindows {
     }
 
     static func showSettings() {
-        present(.settings, title: "Harper Settings", size: NSSize(width: 780, height: 600), resizable: true, chrome: .sidebar) {
+        present(.settings, title: "Harper Settings", size: NSSize(width: 780, height: 600), resizable: true, chrome: .toolbar) {
             SettingsView(model: SettingsModel())
         }
     }
@@ -52,7 +53,10 @@ enum AppWindows {
     }
 
     static func showEditor() {
-        present(.editor, title: "Harper Editor", size: NSSize(width: 960, height: 680), resizable: true, chrome: .hiddenTitleBar) {
+        // macOS 13 shows no SwiftUI toolbar in a window Harper makes itself, which would leave an
+        // empty toolbar band, so there the editor keeps a plain title bar.
+        let chrome: Chrome = if #available(macOS 14, *) { .toolbar } else { .hiddenTitleBar }
+        present(.editor, title: "Harper Editor", size: NSSize(width: 960, height: 680), resizable: true, chrome: chrome) {
             EditorView(model: EditorModel())
         }
     }
@@ -97,7 +101,7 @@ enum AppWindows {
     ) -> NSWindow {
         let controller = NSHostingController(rootView: content())
         controller.sizingOptions = [.minSize]
-        if chrome == .sidebar, #available(macOS 14, *) {
+        if chrome == .toolbar, #available(macOS 14, *) {
             controller.sceneBridgingOptions = [.toolbars]
         }
 
@@ -109,7 +113,7 @@ enum AppWindows {
         }
 
         switch chrome {
-        case .sidebar:
+        case .toolbar:
             window.styleMask.insert(.fullSizeContentView)
             window.toolbarStyle = .unified
             if #unavailable(macOS 14) {

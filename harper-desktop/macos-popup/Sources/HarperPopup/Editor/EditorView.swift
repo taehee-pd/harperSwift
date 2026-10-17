@@ -11,8 +11,9 @@ protocol EditorTextController: AnyObject {
     func closePopover()
 }
 
-/// The editor window: the text, the problems beside it, and a status bar. There is no visible
-/// title bar; the window controls sit over a band at the top of the page.
+/// The editor window: the text, the problems beside it, and a status bar. It shares Settings'
+/// chrome: the title and the controls sit in a unified toolbar, and the problems use the same
+/// grouped rows as the settings panes.
 struct EditorView: View {
     @StateObject private var model: EditorModel
 
@@ -21,10 +22,25 @@ struct EditorView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            layout(titleBarHeight: proxy.safeAreaInsets.top)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                EditorTextView(model: model)
+                if model.showsProblems {
+                    Divider()
+                    ProblemsPanel(model: model)
+                        .frame(width: 300)
+                }
+            }
+            Divider()
+            EditorStatusBar(model: model)
         }
-        .ignoresSafeArea(.container, edges: .top)
+        .navigationTitle("Editor")
+        .toolbar {
+            // One item each, so the text size buttons stay joined like Settings' Back and Forward.
+            ToolbarItem(placement: .primaryAction) { FontPicker(model: model) }
+            ToolbarItem(placement: .primaryAction) { TextSizeButtons(model: model) }
+            ToolbarItem(placement: .primaryAction) { ProblemsToggle(model: model) }
+        }
         .frame(minWidth: 620, minHeight: 400)
         .alert(
             "Harper couldn\u{2019}t check this text",
@@ -34,45 +50,109 @@ struct EditorView: View {
             Button("OK") {}
         } message: { Text($0) }
     }
+}
 
-    private func layout(titleBarHeight: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    // The window controls sit here; the text scrolls below them, not under them.
-                    Color.clear.frame(height: titleBarHeight)
-                    EditorTextView(model: model)
-                        .overlay(alignment: .topLeading) {
-                            if model.text.isEmpty {
-                                Text("Start writing\u{2026}")
-                                    .font(Font(model.font.font(size: model.fontSize)))
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.leading, EditorTextView.inset.width + 5)
-                                    .padding(.top, EditorTextView.inset.height)
-                                    .allowsHitTesting(false)
-                                    .accessibilityHidden(true)
-                            }
-                        }
-                }
-                .background(Color(nsColor: .textBackgroundColor))
-                if model.showsProblems {
-                    Divider()
-                    ProblemsSidebar(model: model, headerHeight: max(titleBarHeight, 28))
-                        .frame(width: 300)
-                }
-            }
-            Divider()
-            EditorStatusBar(model: model)
+// Font, text size, and the Problems toggle. They sit in the toolbar; macOS 13 shows no SwiftUI
+// toolbar in a window Harper makes itself, so there they sit in the status bar.
+
+private struct FontPicker: View {
+    @ObservedObject var model: EditorModel
+
+    var body: some View {
+        Picker("Font", selection: $model.font) {
+            ForEach(EditorFont.allCases) { Text($0.title).tag($0) }
         }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help("Font")
+    }
+}
+
+private struct TextSizeButtons: View {
+    @ObservedObject var model: EditorModel
+
+    var body: some View {
+        ControlGroup {
+            Button { model.fontSize = max(11, model.fontSize - 1) } label: {
+                Label("Smaller Text", systemImage: "textformat.size.smaller")
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .help("Smaller text (\u{2318}\u{2212})")
+            Button { model.fontSize = min(32, model.fontSize + 1) } label: {
+                Label("Larger Text", systemImage: "textformat.size.larger")
+            }
+            .keyboardShortcut("=", modifiers: .command)
+            .help("Larger text (\u{2318}+)")
+        }
+        .controlGroupStyle(.navigation)
+    }
+}
+
+private struct ProblemsToggle: View {
+    @ObservedObject var model: EditorModel
+
+    var body: some View {
+        Button {
+            model.showsProblems.toggle()
+        } label: {
+            Label(model.showsProblems ? "Hide Problems" : "Show Problems", systemImage: "sidebar.right")
+        }
+        .help(model.showsProblems ? "Hide Problems" : "Show Problems")
     }
 }
 
 // MARK: - Text view
 
-/// Adds Control-Command-Y (accept the first suggestion) and Escape (close the popover).
+/// Adds Control-Command-Y (accept the first suggestion), Escape (close the popover), and a
+/// placeholder drawn where the first line of text starts, so it sits exactly at the caret.
 final class HarperTextView: NSTextView {
     var onAccept: (() -> Void)?
     var onEscape: (() -> Bool)?
+
+    var placeholder = "" {
+        didSet {
+            setAccessibilityPlaceholderValue(placeholder)
+            needsDisplay = true
+        }
+    }
+
+    private var placeholderAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .foregroundColor: NSColor.placeholderTextColor,
+        ]
+    }
+
+    private var placeholderRect: NSRect {
+        let padding = textContainer?.lineFragmentPadding ?? 0
+        let origin = NSPoint(x: textContainerOrigin.x + padding, y: textContainerOrigin.y)
+        return NSRect(origin: origin, size: (placeholder as NSString).size(withAttributes: placeholderAttributes))
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if textStorage?.length == 0, !placeholder.isEmpty {
+            (placeholder as NSString).draw(at: placeholderRect.origin, withAttributes: placeholderAttributes)
+        }
+    }
+
+    // An edit redraws only the text it touched, which may not cover the placeholder. Text being
+    // composed with an input method changes without `didChangeText`.
+    override func didChangeText() {
+        super.didChangeText()
+        setNeedsDisplay(placeholderRect)
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        setNeedsDisplay(placeholderRect)
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        setNeedsDisplay(placeholderRect)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -102,6 +182,10 @@ struct EditorTextView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
         scrollView.borderType = .noBorder
+        // The layout already keeps the text below the title bar; an automatic inset would add
+        // the title bar's height a second time.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
 
         // TextKit 1: underlines are layout manager temporary attributes, which do not touch the
         // text or its Undo history.
@@ -127,6 +211,7 @@ struct EditorTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.textStorage?.delegate = context.coordinator
         textView.setAccessibilityLabel("Document")
+        textView.placeholder = "Start writing\u{2026}"
         textView.onAccept = { [weak coordinator = context.coordinator] in coordinator?.acceptAtCaret() }
         textView.onEscape = { [weak coordinator = context.coordinator] in coordinator?.closePopoverIfShown() ?? false }
 
@@ -147,6 +232,7 @@ struct EditorTextView: NSViewRepresentable {
         if textView.font != font {
             textView.font = font
             textView.typingAttributes[.font] = font
+            textView.needsDisplay = true
         }
         context.coordinator.followLints()
     }
@@ -344,121 +430,76 @@ struct EditorTextView: NSViewRepresentable {
 
 // MARK: - Problems
 
-struct ProblemsSidebar: View {
+/// The problems in the text, one section per kind, in the grouped rows Settings uses.
+struct ProblemsPanel: View {
     @ObservedObject var model: EditorModel
-    /// The header shares the title bar's row, level with the window controls.
-    var headerHeight: CGFloat = 28
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Problems")
-                    .font(.headline)
-                Text("\(model.lints.count)")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                Spacer()
-                RowMenu(label: "More actions") {
-                    Button("Ignore All", action: model.ignoreAll)
-                }
-                .disabled(model.lints.isEmpty)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: headerHeight)
-            .padding(.bottom, 6)
-
-            if !model.kinds.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        KindChip(title: "All", count: model.lints.count, color: nil, isSelected: model.kindFilter == nil) {
-                            model.kindFilter = nil
-                        }
-                        ForEach(model.kinds, id: \.name) { kind in
-                            KindChip(title: kind.name, count: kind.count, color: kind.color.color, isSelected: model.kindFilter == kind.name) {
-                                model.kindFilter = model.kindFilter == kind.name ? nil : kind.name
-                            }
+        Form {
+            Section {
+                LabeledContent {
+                    if !model.lints.isEmpty {
+                        Button("Ignore All", action: model.ignoreAll)
+                    }
+                } label: {
+                    Label {
+                        Text(summary)
+                    } icon: {
+                        if model.lints.isEmpty && !model.text.isEmpty {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .accessibilityHidden(true)
                         }
                     }
-                    .padding(.horizontal, 14)
                 }
-                .padding(.bottom, 10)
             }
 
-            Divider()
-
-            if model.lints.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.secondary)
-                    Text(model.text.isEmpty ? "Nothing to check yet" : "No problems found")
-                        .foregroundStyle(.secondary)
+            ForEach(model.kindGroups) { group in
+                Section {
+                    ForEach(group.lints) { lint in
+                        ProblemRow(lint: lint, model: model)
+                    }
+                } header: {
+                    HStack(spacing: 6) {
+                        Circle().fill(group.color.color).frame(width: 7, height: 7)
+                        Text(group.name)
+                        Text("\(group.lints.count)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(model.visibleLints) { lint in
-                    ProblemRow(lint: lint, model: model)
-                        .contentShape(Rectangle())
-                        .onTapGesture { model.reveal(lint) }
-                        .accessibilityAction(named: "Show in Text") { model.reveal(lint) }
-                }
-                .listStyle(.inset)
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .formStyle(.grouped)
+    }
+
+    private var summary: String {
+        switch model.lints.count {
+        case 0: model.text.isEmpty ? "Nothing to check yet" : "No problems found"
+        case 1: "1 problem"
+        case let count: "\(count) problems"
+        }
     }
 }
 
-private struct KindChip: View {
-    let title: String
-    let count: Int
-    let color: Color?
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let color {
-                    Circle().fill(color).frame(width: 7, height: 7)
-                }
-                Text(title)
-                Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
-            }
-            .font(.system(size: 11, weight: .medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                Capsule().fill(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06))
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title), \(count)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
+/// A problem as a settings row: what is wrong, the text it is about, then the fixes. Clicking it
+/// shows the problem in the text.
 private struct ProblemRow: View {
     let lint: EditorLint
     @ObservedObject var model: EditorModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Circle().fill(lint.popup.kindColor.color).frame(width: 7, height: 7)
-                Text(lint.popup.kindName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(PopupText.message(lint.popup.message))
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("\u{201c}\(lint.popup.flaggedText)\u{201d}")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            Text(PopupText.message(lint.popup.message))
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
                 ForEach(Array(lint.popup.suggestions.prefix(3).enumerated()), id: \.offset) { index, suggestion in
                     Button {
@@ -473,12 +514,13 @@ private struct ProblemRow: View {
                 Spacer(minLength: 0)
                 Button("Ignore") { model.ignore(lint) }
                     .buttonStyle(.borderless)
-                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { model.reveal(lint) }
         .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Show in Text") { model.reveal(lint) }
     }
 }
 
@@ -498,41 +540,21 @@ struct EditorStatusBar: View {
             Text(model.wordCount == 1 ? "1 word" : "\(model.wordCount) words")
             Text("\(model.text.count) characters")
             Spacer()
-            Picker("Font", selection: $model.font) {
-                ForEach(EditorFont.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            HStack(spacing: 0) {
-                Button { model.fontSize = max(11, model.fontSize - 1) } label: {
-                    Image(systemName: "textformat.size.smaller")
+            if #unavailable(macOS 14) {
+                FontPicker(model: model)
+                Group {
+                    TextSizeButtons(model: model)
+                    ProblemsToggle(model: model)
                 }
-                .keyboardShortcut("-", modifiers: .command)
-                .help("Smaller text (\u{2318}\u{2212})")
-                .accessibilityLabel("Smaller text")
-                Button { model.fontSize = min(32, model.fontSize + 1) } label: {
-                    Image(systemName: "textformat.size.larger")
-                }
-                .keyboardShortcut("=", modifiers: .command)
-                .help("Larger text (\u{2318}+)")
-                .accessibilityLabel("Larger text")
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
             }
-            .buttonStyle(.borderless)
-            Button {
-                model.showsProblems.toggle()
-            } label: {
-                Image(systemName: "sidebar.right")
-            }
-            .buttonStyle(.borderless)
-            .help(model.showsProblems ? "Hide Problems" : "Show Problems")
-            .accessibilityLabel(model.showsProblems ? "Hide Problems" : "Show Problems")
         }
         .font(.callout)
         .foregroundStyle(.secondary)
         .monospacedDigit()
         .controlSize(.small)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 20)
         .frame(height: 30)
         .background(.bar)
     }
