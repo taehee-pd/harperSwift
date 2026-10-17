@@ -69,19 +69,10 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    /// The first time, the system alert adds Harper to the Accessibility list and offers to open
-    /// System Settings; opening Settings as well would put two windows in front of the user. Later
-    /// presses go straight to the list.
     func requestAccess() {
-        if askedForAccess {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
+        let alreadyAsked = askedForAccess
         askedForAccess = true
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        if AXIsProcessTrustedWithOptions(options) {
+        if AccessibilityAccess.request(alreadyAsked: alreadyAsked), !isTrusted {
             isTrusted = true
             Task { await startChecking() }
         }

@@ -198,6 +198,11 @@ struct SettingsSnapshot {
     apps: Vec<AppView>,
     auto_enable_new_apps: bool,
     onboarding_completed: bool,
+    /// Whether the highlighter is running, so Harper is checking text in other apps.
+    checking: bool,
+    /// Whether checking is turned on, even if it cannot run (without Accessibility access).
+    checking_enabled: bool,
+    accessibility_granted: bool,
 }
 
 #[derive(Serialize)]
@@ -229,12 +234,21 @@ async fn load(app: &AppHandle, config: &SharedConfig) -> Result<SettingsSnapshot
             apps: Vec::new(),
             auto_enable_new_apps: config.auto_enable_new_apps,
             onboarding_completed: config.onboarding_completed,
+            checking: false,
+            checking_enabled: config.highlighter_service_enabled,
+            accessibility_granted: false,
         };
         (snapshot, config.integrations.clone())
     };
 
     snapshot.dictionary.sort_by_key(|word| word.to_lowercase());
     snapshot.launch_at_login = app.autolaunch().is_enabled().unwrap_or(false);
+    snapshot.checking = app.state::<HighlighterService>().is_running();
+    snapshot.accessibility_granted = crate::accessibility_watch::is_granted(app);
+    if !snapshot.checking {
+        // Clarity reports its status while checking text, so there is nothing to report yet.
+        snapshot.clarity.status = "Waiting: starts once Harper is checking your writing".to_owned();
+    }
 
     let broker = app.state::<RwLock<PlatformBroker>>();
     let broker = broker
@@ -507,6 +521,9 @@ mod tests {
             }],
             auto_enable_new_apps: true,
             onboarding_completed: false,
+            checking: false,
+            checking_enabled: true,
+            accessibility_granted: true,
         };
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../macos-popup/Tests/HarperPopupTests/Fixtures/settings.json"

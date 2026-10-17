@@ -199,7 +199,8 @@ impl ClaritySettingsView {
 /// The status in plain words for the settings window.
 pub fn describe(status: Option<Availability>) -> String {
     match status {
-        None => "Checking: Harper hasn't heard from Apple Intelligence yet".to_owned(),
+        // The status arrives when Harper first checks text, which can be a while.
+        None => "Waiting: starts when you write in an app Harper is on for".to_owned(),
         Some(Availability::Available) => "Ready: suggestions run on this Mac".to_owned(),
         Some(Availability::Paused(PauseReason::LowPowerMode)) => {
             "Paused: Low Power Mode is on".to_owned()
@@ -283,7 +284,7 @@ mod tests {
             })
             .available
         );
-        assert!(describe(None).starts_with("Checking"));
+        assert!(describe(None).starts_with("Waiting"));
     }
 
     #[test]

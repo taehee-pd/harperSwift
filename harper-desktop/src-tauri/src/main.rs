@@ -3,7 +3,8 @@
 
 // Modified in this fork (taehee-pd/harperSwift): on macOS, `lint_text` also merges Clarity
 // suggestions, the config refresh syncs the Clarity setting (`clarity/`), and Settings, the
-// first-run setup and the editor are native SwiftUI windows (`native_ui/`).
+// first-run setup and the editor are native SwiftUI windows (`native_ui/`), and checking starts as
+// soon as Accessibility access arrives, even after launch (`accessibility_watch.rs`).
 
 mod debug_broker;
 mod tray;
@@ -55,6 +56,8 @@ pub mod lint_kind_color;
 mod os_broker;
 pub mod rect;
 
+#[cfg(target_os = "macos")]
+mod accessibility_watch;
 #[cfg(target_os = "macos")]
 mod clarity;
 #[cfg(target_os = "macos")]
@@ -170,6 +173,12 @@ pub fn run_tauri() {
 
     let should_start_highlighter = config.highlighter_service_enabled
         && broker.accessibility_permission_status() == AccessibilityPermissionStatus::Granted;
+    // Checking is on but cannot run yet: wait for the access. After setup, the user expects
+    // Harper to be checking, so Settings opens to say why it is not.
+    #[cfg(target_os = "macos")]
+    let waiting_for_access = config.highlighter_service_enabled && !should_start_highlighter;
+    #[cfg(target_os = "macos")]
+    let lost_access = waiting_for_access && config.onboarding_completed;
     let config = Arc::new(Mutex::new(config));
 
     tauri::Builder::default()
@@ -205,6 +214,14 @@ pub fn run_tauri() {
 
             if is_first_launch {
                 windows::show_settings_window(app.handle())?;
+            }
+
+            #[cfg(target_os = "macos")]
+            if waiting_for_access {
+                accessibility_watch::start_checking_when_granted(app.handle().clone());
+                if lost_access && !is_first_launch {
+                    windows::show_settings_window(app.handle())?;
+                }
             }
 
             #[cfg(target_os = "macos")]

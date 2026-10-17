@@ -23,7 +23,13 @@ Releases are signed with a Developer ID and notarized by Apple, so macOS opens t
 One-time setup, which needs a paid Apple Developer Program membership:
 
 1. **Certificate.** In Xcode, open Settings → Accounts, select the team, choose Manage Certificates, and add a **Developer ID Application** certificate. Only the team's Account Holder can create one. Check it with `security find-identity -v -p codesigning`.
-2. **Notarization key.** In App Store Connect, open Users and Access → Integrations → Team Keys and create a key with the Developer role. Download the `.p8` file (Apple offers it only once) to `~/.tauri/`, and note the key ID and the issuer ID shown on that page.
+2. **Notarization key.** In App Store Connect, open Users and Access → Integrations → Team Keys and create a key with the Developer role. Download the `.p8` file (Apple offers it only once), and note the key ID and the issuer ID shown on that page. The browser saves the file to Downloads; move it:
+
+   ```sh
+   mkdir -p ~/.tauri
+   mv ~/Downloads/AuthKey_*.p8 ~/.tauri/
+   chmod 600 ~/.tauri/AuthKey_*.p8
+   ```
 3. **Settings file.** Create `~/.tauri/harperswift-notary.env`:
 
    ```sh
@@ -32,7 +38,7 @@ One-time setup, which needs a paid Apple Developer Program membership:
    APPLE_API_KEY_PATH=$HOME/.tauri/AuthKey_<key ID>.p8
    ```
 
-Keep the `.p8` file and the certificate's private key out of the repository, like the updater key. If the keychain holds more than one Developer ID certificate, set `APPLE_SIGNING_IDENTITY` to the one to use.
+Keep the `.p8` file and the certificate's private key out of the repository, like the updater key. If the keychain holds more than one Developer ID Application certificate (after a renewal, both have the same name), set `APPLE_SIGNING_IDENTITY` to the 40-character hash that `security find-identity -v -p codesigning` shows for the one to use.
 
 ## Release steps
 
@@ -54,4 +60,4 @@ Signed releases open normally after download.
 
 Releases up to 1.2.0 were signed ad hoc, so macOS blocks them after download. To open one, drag Harper to Applications and run `xattr -dr com.apple.quarantine /Applications/Harper.app`, or open Harper once and choose Open Anyway in System Settings → Privacy & Security.
 
-The first update from an ad hoc release to a signed one loses the Accessibility permission one last time: turn Harper off and on again in System Settings → Privacy & Security → Accessibility (or remove it and add it again). Say so in that release's notes, and update the install steps in the README.
+The first update from an ad hoc release to a signed one loses the Accessibility permission one last time. From 1.2.1, Harper notices at launch, opens Settings to say so, and starts checking as soon as access is back: in System Settings → Privacy & Security → Accessibility, turn Harper off and on again (or remove it and add it again). Say so in that release's notes.

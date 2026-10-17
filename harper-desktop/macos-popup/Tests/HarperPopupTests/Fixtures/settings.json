@@ -12,5 +12,8 @@
 	"dictionary": ["Harper", "macOS"],
 	"apps": [{ "bundleId": "com.apple.TextEdit", "name": "TextEdit", "enabled": true }],
 	"autoEnableNewApps": true,
-	"onboardingCompleted": false
+	"onboardingCompleted": false,
+	"checking": false,
+	"checkingEnabled": true,
+	"accessibilityGranted": true
 }

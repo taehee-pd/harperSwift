@@ -61,6 +61,16 @@ VERSION="$(node -p "require('$DESKTOP/src-tauri/tauri.conf.json').version")"
 TAG="v$VERSION"
 echo "Building Harper $VERSION, signed by $IDENTITY"
 
+BUNDLE="$DESKTOP/src-tauri/target/aarch64-apple-darwin/release/bundle"
+APP="$BUNDLE/macos/Harper.app"
+DMG="$BUNDLE/dmg/Harper_${VERSION}_aarch64.dmg"
+OUT="$BUNDLE/release"
+ARCHIVE="Harper_${VERSION}_aarch64.app.tar.gz"
+# A failed run must not leave the previous release's files looking current.
+rm -rf "$OUT"
+UNPACKED="$(mktemp -d)"
+trap 'rm -rf "$UNPACKED"' EXIT
+
 cd "$DESKTOP"
 # For the Tauri CLI.
 pnpm install
@@ -75,30 +85,25 @@ CONFIG="$(IDENTITY="$IDENTITY" node -p 'JSON.stringify({bundle: {createUpdaterAr
   macOS: {signingIdentity: process.env.IDENTITY, hardenedRuntime: true}}})')"
 pnpm tauri build -b app,dmg --target aarch64-apple-darwin --config "$CONFIG"
 
-BUNDLE="$DESKTOP/src-tauri/target/aarch64-apple-darwin/release/bundle"
-APP="$BUNDLE/macos/Harper.app"
-DMG="$BUNDLE/dmg/Harper_${VERSION}_aarch64.dmg"
+# Stop rather than publish something Gatekeeper would block. The app the updater installs is the
+# copy in the archive, so that copy is checked too, before the dmg takes its turn at Apple.
+check_app() {
+  codesign --verify --deep --strict "$1"
+  spctl --assess --type execute "$1"
+  xcrun stapler validate "$1"
+}
+check_app "$APP"
+tar -xzf "$BUNDLE/macos/Harper.app.tar.gz" -C "$UNPACKED"
+check_app "$UNPACKED/Harper.app"
 
 # The dmg is what people download, so it is signed and notarized too.
 codesign --force --sign "$IDENTITY" --timestamp "$DMG"
 xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" \
   --issuer "$APPLE_API_ISSUER" --wait
 xcrun stapler staple "$DMG"
-
-# Stop here rather than publish something Gatekeeper would block.
-codesign --verify --deep --strict "$APP"
-spctl --assess --type execute "$APP"
-xcrun stapler validate "$APP"
 spctl --assess --type open --context context:primary-signature "$DMG"
 xcrun stapler validate "$DMG"
-UNPACKED="$(mktemp -d)"
-tar -xzf "$BUNDLE/macos/Harper.app.tar.gz" -C "$UNPACKED"
-xcrun stapler validate "$UNPACKED/Harper.app"
-rm -rf "$UNPACKED"
 
-OUT="$BUNDLE/release"
-ARCHIVE="Harper_${VERSION}_aarch64.app.tar.gz"
-rm -rf "$OUT"
 mkdir -p "$OUT"
 cp "$DMG" "$OUT/"
 cp "$BUNDLE/macos/Harper.app.tar.gz" "$OUT/$ARCHIVE"
