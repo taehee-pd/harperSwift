@@ -1,4 +1,6 @@
-// Modified in this fork (taehee-pd/harperSwift): drives the native macOS popup from the event loop.
+// Modified in this fork (taehee-pd/harperSwift): drives the native macOS popup from the event loop,
+// and pauses reading and drawing while the pointer rests on it
+// (`NativePopup::pointer_rests_on_popup`).
 
 use std::time::{Duration, Instant};
 
@@ -23,6 +25,10 @@ use crate::os_broker::{LintText, OsBroker};
 use crate::rect::ActionableLint;
 
 const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Fork: how long a frame waits while reading is paused, instead of spinning.
+#[cfg(target_os = "macos")]
+const PAUSED_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Owns the winit event loop and the overlay windows created for each monitor.
 ///
@@ -116,6 +122,8 @@ struct WindowManagerApp {
     os_broker: Box<dyn OsBroker>,
     lint_text: LintText,
     last_config_poll: Instant,
+    /// Fork: reading the text and drawing the overlay wait while the pointer rests on the popup.
+    paused_for_popup: bool,
     refresh_config: RefreshConfig,
     hovered_lint: Option<usize>,
     cursor_hittest_enabled: bool,
@@ -144,6 +152,7 @@ impl WindowManagerApp {
             os_broker,
             lint_text: callbacks.lint_text,
             last_config_poll: Instant::now(),
+            paused_for_popup: false,
             refresh_config: callbacks.refresh_config,
             hovered_lint: None,
             cursor_hittest_enabled: false,
@@ -230,7 +239,23 @@ impl ApplicationHandler for WindowManagerApp {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
 
-        self.read_rect_updates();
+        #[cfg(target_os = "macos")]
+        let paused = self
+            .native_popup
+            .pointer_rests_on_popup(|| self.os_broker.cursor_position());
+        #[cfg(not(target_os = "macos"))]
+        let paused = false;
+
+        if !paused {
+            self.read_rect_updates();
+        }
+        self.paused_for_popup = paused;
+        #[cfg(target_os = "macos")]
+        event_loop.set_control_flow(if paused {
+            ControlFlow::WaitUntil(now + PAUSED_FRAME_INTERVAL)
+        } else {
+            ControlFlow::Poll
+        });
 
         if now.duration_since(self.last_config_poll) >= CONFIG_POLL_INTERVAL {
             self.refresh_config();
@@ -286,7 +311,10 @@ impl ApplicationHandler for WindowManagerApp {
         {
             window.handle_event(&event);
 
-            if should_render {
+            // While paused, a frame would wait on macOS for a fresh drawable, which it withholds
+            // while it holds the click for this process: both wait until the drawable times out
+            // after a second. The next read after the pause requests a frame again.
+            if should_render && !self.paused_for_popup {
                 window.render(&mut self.render_state);
             }
         }

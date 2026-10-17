@@ -2,7 +2,7 @@
 //!
 //! Notices mouse presses anywhere on screen without receiving them. This lets the underline
 //! overlay stay click-through on macOS, so clicking an underline never activates Harper and the
-//! app the user is typing in keeps focus.
+//! app the user is typing in keeps focus. Also tells how long ago a key was pressed.
 
 /// `kCGEventSourceStateCombinedSessionState`.
 const COMBINED_SESSION_STATE: i32 = 0;
@@ -10,10 +10,18 @@ const COMBINED_SESSION_STATE: i32 = 0;
 const LEFT_MOUSE_DOWN: u32 = 1;
 /// `kCGEventRightMouseDown`.
 const RIGHT_MOUSE_DOWN: u32 = 3;
+/// `kCGEventKeyDown`.
+const KEY_DOWN: u32 = 10;
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGEventSourceCounterForEventType(state_id: i32, event_type: u32) -> u32;
+    fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+}
+
+/// Seconds since a key was last pressed anywhere.
+pub fn seconds_since_key_down() -> f64 {
+    unsafe { CGEventSourceSecondsSinceLastEventType(COMBINED_SESSION_STATE, KEY_DOWN) }
 }
 
 /// Mouse buttons pressed since the previous frame.
