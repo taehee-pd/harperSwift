@@ -116,25 +116,6 @@ struct WindowTitle: NSViewRepresentable {
     }
 }
 
-/// The frosted, see-through material of the system sidebars, for a whole window background. It
-/// blurs what is behind the window, dims while the window is inactive, and turns solid when the
-/// user asks for reduced transparency, all like the system's own.
-struct WindowGlass: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .sidebar
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
-    }
-}
-
 /// The "…" button at the end of a row, like the rows in System Settings' Wi-Fi list, with actions
 /// for that row.
 struct RowMenu<Content: View>: View {

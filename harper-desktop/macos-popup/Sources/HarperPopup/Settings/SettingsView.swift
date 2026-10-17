@@ -47,6 +47,9 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @StateObject private var model: SettingsModel
     @State private var pane: SettingsPane?
+    /// Panes visited before and after the current one, for Back and Forward.
+    @State private var backStack: [SettingsPane] = []
+    @State private var forwardStack: [SettingsPane] = []
 
     init(model: SettingsModel, pane: SettingsPane = .general) {
         _model = StateObject(wrappedValue: model)
@@ -55,7 +58,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $pane) {
+            List(selection: selection) {
                 Section {
                     ForEach([SettingsPane.general, .dictionary, .rules, .apps]) { row($0) }
                 }
@@ -83,9 +86,25 @@ struct SettingsView: View {
             }
             .navigationTitle((pane ?? .general).title)
             .background(WindowTitle(title: (pane ?? .general).title))
-            // Grouped forms sit on glass; their rows keep a fill of their own.
-            .scrollContentBackground(.hidden)
-            .background(WindowGlass().ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    ControlGroup {
+                        Button(action: goBack) {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .disabled(backStack.isEmpty)
+                        .keyboardShortcut("[", modifiers: .command)
+                        .help("Back")
+                        Button(action: goForward) {
+                            Label("Forward", systemImage: "chevron.right")
+                        }
+                        .disabled(forwardStack.isEmpty)
+                        .keyboardShortcut("]", modifiers: .command)
+                        .help("Forward")
+                    }
+                    .controlGroupStyle(.navigation)
+                }
+            }
         }
         .removingSidebarToggle()
         .frame(minWidth: 680, minHeight: 460)
@@ -98,6 +117,30 @@ struct SettingsView: View {
         } message: { failure in
             Text(failure)
         }
+    }
+
+    /// Choosing a pane in the sidebar records the one it leaves, like System Settings.
+    private var selection: Binding<SettingsPane?> {
+        Binding {
+            pane
+        } set: { newPane in
+            guard let newPane, newPane != pane else { return }
+            if let pane { backStack.append(pane) }
+            forwardStack.removeAll()
+            pane = newPane
+        }
+    }
+
+    private func goBack() {
+        guard let previous = backStack.popLast() else { return }
+        if let pane { forwardStack.append(pane) }
+        pane = previous
+    }
+
+    private func goForward() {
+        guard let next = forwardStack.popLast() else { return }
+        if let pane { backStack.append(pane) }
+        pane = next
     }
 
     private func row(_ pane: SettingsPane) -> some View {
