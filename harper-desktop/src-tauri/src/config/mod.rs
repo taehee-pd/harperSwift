@@ -1,6 +1,7 @@
 // Modified in this fork (taehee-pd/harperSwift): saves the Clarity setting on macOS
 // (`clarity/settings.rs`), `Config` is `Clone` so native Settings can undo a change that fails to
-// save (`native_ui/settings.rs`), and tests keep their saved configs in a temporary folder.
+// save (`native_ui/settings.rs`), tests keep their saved configs in a temporary folder, and
+// `linter_fingerprint` lets the highlighter keep a linter that is still current.
 
 mod error;
 mod integration;
@@ -10,11 +11,13 @@ pub use error::Error;
 use harper_core::{
     Dialect, IgnoredLints,
     linting::{FlatConfig, LintGroup},
-    spell::{FstDictionary, MergedDictionary, MutableDictionary},
+    spell::{Dictionary, FstDictionary, MergedDictionary, MutableDictionary},
 };
 use harper_dictionary_wordlist::{load_dict, save_dict};
 pub use integration::Integration;
 use serde::de::{DeserializeOwned, Error as _};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::{fs, io, path::PathBuf, sync::Arc};
 
 /// User-controlled app state needed by Tauri commands and the highlighter process.
@@ -177,6 +180,22 @@ impl Config {
     pub fn create_linter(&self) -> LintGroup {
         LintGroup::new_curated(self.create_dictionary(), self.dialect)
             .with_lint_config(self.lint_config.clone())
+    }
+
+    /// Fork: changes whenever the dictionary or dialect a linter is built from changes, so a
+    /// refresh can keep a linter that is still current instead of building a new one, which
+    /// takes a while. Rule settings are left out: they can be swapped into a built linter.
+    pub fn linter_fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.dialect.hash(&mut hasher);
+        let mut words = self
+            .mutable_dictionary
+            .words_iter()
+            .map(|word| word.iter().collect::<String>())
+            .collect::<Vec<_>>();
+        words.sort();
+        words.hash(&mut hasher);
+        hasher.finish()
     }
 
     #[allow(dead_code)]
@@ -470,6 +489,32 @@ mod tests {
         assert_eq!(
             path.parent().unwrap().file_name().unwrap(),
             "harper-desktop"
+        );
+    }
+
+    #[test]
+    fn linter_fingerprint_matches_for_equal_configs() {
+        let config = Config::new();
+        let copy = Config::deserialize_main(&config.serialize_main().unwrap()).unwrap();
+
+        assert_eq!(config.linter_fingerprint(), copy.linter_fingerprint());
+    }
+
+    #[test]
+    fn linter_fingerprint_changes_with_the_linter_inputs() {
+        let config = Config::new();
+
+        let mut new_word = config.clone();
+        new_word
+            .mutable_dictionary
+            .append_word_str("blorple", DictWordMetadata::default());
+        assert_ne!(config.linter_fingerprint(), new_word.linter_fingerprint());
+
+        let mut new_dialect = config.clone();
+        new_dialect.dialect = harper_core::Dialect::British;
+        assert_ne!(
+            config.linter_fingerprint(),
+            new_dialect.linter_fingerprint()
         );
     }
 }
