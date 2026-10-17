@@ -159,6 +159,16 @@ struct GeneralPane: View {
                         action: model.turnOnChecking
                     )
                 }
+            } else if !snapshot.checking {
+                // On but not running: it failed to start or stopped.
+                Section {
+                    CheckingNotice(
+                        title: "Harper stopped checking",
+                        detail: "Checking is on, but Harper isn\u{2019}t checking your writing right now.",
+                        button: "Start Again",
+                        action: model.turnOnChecking
+                    )
+                }
             }
 
             Section("Writing") {
