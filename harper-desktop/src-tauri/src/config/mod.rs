@@ -1,6 +1,6 @@
 // Modified in this fork (taehee-pd/harperSwift): saves the Clarity setting on macOS
-// (`clarity/settings.rs`), and `Config` is `Clone` so native Settings can undo a change that
-// fails to save (`native_ui/settings.rs`).
+// (`clarity/settings.rs`), `Config` is `Clone` so native Settings can undo a change that fails to
+// save (`native_ui/settings.rs`), and tests keep their saved configs in a temporary folder.
 
 mod error;
 mod integration;
@@ -181,7 +181,14 @@ impl Config {
 
     #[allow(dead_code)]
     fn folder_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|path| path.join("harper-desktop"))
+        // Fork: tests save configs too (the IPC tests apply changes the way the app does), so they
+        // must never reach the real settings of whoever runs them.
+        #[cfg(test)]
+        let base =
+            Some(std::env::temp_dir().join(format!("harper-desktop-tests-{}", std::process::id())));
+        #[cfg(not(test))]
+        let base = dirs::config_dir();
+        base.map(|path| path.join("harper-desktop"))
     }
 
     #[allow(dead_code)]
