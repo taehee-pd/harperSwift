@@ -17,6 +17,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use tokio::sync::Mutex;
 
+use super::ffi::LoginItemChange;
 use super::{change, param, reply};
 use crate::PlatformBroker;
 use crate::clarity::settings::ClaritySettingsView;
@@ -242,7 +243,7 @@ async fn load(app: &AppHandle, config: &SharedConfig) -> Result<SettingsSnapshot
     };
 
     snapshot.dictionary.sort_by_key(|word| word.to_lowercase());
-    snapshot.launch_at_login = app.autolaunch().is_enabled().unwrap_or(false);
+    snapshot.launch_at_login = launch_at_login(app);
     snapshot.checking = app.state::<HighlighterService>().is_running();
     snapshot.accessibility_granted = crate::accessibility_watch::is_granted(app);
     if !snapshot.checking {
@@ -286,14 +287,68 @@ fn app_name(broker: &PlatformBroker, bundle_id: &str) -> String {
     name
 }
 
+// Harper opens at login as a login item (`App/LoginItem.swift`), which macOS shows under Harper's
+// name. Earlier versions used the autostart plugin's launch agent, which macOS shows under the
+// developer's name; it still counts as on until it is moved.
+
+fn launch_at_login(app: &AppHandle) -> bool {
+    super::ffi::login_item_is_enabled() || app.autolaunch().is_enabled().unwrap_or(false)
+}
+
 fn set_launch_at_login(app: &AppHandle, params: &Value) -> Result<(), String> {
-    let launcher = app.autolaunch();
-    let result = if param::<bool>(params, "enabled")? {
-        launcher.enable()
-    } else {
-        launcher.disable()
+    let enabled = param::<bool>(params, "enabled")?;
+    // A copy run from a disk image, Downloads, or a build folder would open at login from there.
+    if enabled && !is_installed() {
+        return Err("Move Harper to your Applications folder first, then turn this on.".to_owned());
+    }
+
+    match super::ffi::set_login_item_enabled(enabled) {
+        LoginItemChange::Done => remove_launch_agent(app),
+        LoginItemChange::NeedsApproval => {
+            super::ffi::open_login_items_settings();
+            Err("Allow Harper in System Settings \u{203a} General \u{203a} Login Items.".to_owned())
+        }
+        LoginItemChange::Refused => Err(format!(
+            "macOS didn\u{2019}t allow the change. You can turn Harper {} in System Settings \u{203a} General \u{203a} Login Items.",
+            if enabled { "on" } else { "off" }
+        )),
+    }
+}
+
+/// Moves an earlier version's launch agent to a login item, from an installed copy only. Nothing
+/// changes unless the login item is on, so Harper keeps opening at login either way.
+pub fn move_launch_agent_to_login_item(app: &AppHandle) {
+    if !is_installed()
+        || !app.autolaunch().is_enabled().unwrap_or(false)
+        || super::ffi::set_login_item_enabled(true) != LoginItemChange::Done
+    {
+        return;
+    }
+    if let Err(error) = remove_launch_agent(app) {
+        // Both would open Harper at login.
+        eprintln!("{error}");
+        super::ffi::set_login_item_enabled(false);
+    }
+}
+
+fn remove_launch_agent(app: &AppHandle) -> Result<(), String> {
+    if !app.autolaunch().is_enabled().unwrap_or(false) {
+        return Ok(());
+    }
+    app.autolaunch()
+        .disable()
+        .map_err(|error| format!("Harper couldn\u{2019}t remove its old login entry: {error}"))
+}
+
+/// Whether this copy is in /Applications or ~/Applications.
+fn is_installed() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
     };
-    result.map_err(|error| error.to_string())
+    let user_applications =
+        std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join("Applications"));
+    exe.starts_with("/Applications")
+        || user_applications.is_some_and(|folder| exe.starts_with(folder))
 }
 
 async fn search_apps(

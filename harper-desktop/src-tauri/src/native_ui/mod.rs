@@ -27,6 +27,7 @@ static APP: OnceLock<AppHandle> = OnceLock::new();
 /// Connects the native windows to the app. Call once from Tauri's `setup`.
 pub fn set_up(app: &AppHandle) -> tauri::Result<()> {
     let _ = APP.set(app.clone());
+    settings::move_launch_agent_to_login_item(app);
     app.run_on_main_thread(ffi::install_request_handler)
 }
 
