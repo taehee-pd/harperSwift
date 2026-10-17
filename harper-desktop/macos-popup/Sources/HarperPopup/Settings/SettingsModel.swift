@@ -29,6 +29,11 @@ struct SettingsSnapshot: Decodable, Equatable {
     var apps: [App]
     var autoEnableNewApps: Bool
     var onboardingCompleted: Bool
+    /// Whether Harper is checking text in other apps right now.
+    var checking: Bool
+    /// Whether checking is turned on (from the menu bar or setup), even if it cannot run.
+    var checkingEnabled: Bool
+    var accessibilityGranted: Bool
 }
 
 enum Dialect: String, Decodable, CaseIterable, Identifiable {
@@ -80,6 +85,7 @@ final class SettingsModel: ObservableObject {
     @Published var failure: String?
     @Published private(set) var updateMessage = ""
     @Published private(set) var isCheckingForUpdates = false
+    @Published private(set) var askedForAccessibility = false
 
     private var statusTimer: Timer?
     private var keyObserver: NSObjectProtocol?
@@ -203,6 +209,26 @@ final class SettingsModel: ObservableObject {
                 updateMessage = result.message
             } catch {
                 failure = "Unable to check for updates: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: Checking
+
+    /// Rust starts checking on its own once access is granted.
+    func allowAccessibility() {
+        let alreadyAsked = askedForAccessibility
+        askedForAccessibility = true
+        AccessibilityAccess.request(alreadyAsked: alreadyAsked)
+    }
+
+    func turnOnChecking() {
+        Task {
+            do {
+                try await NativeBridge.perform("service.start")
+                await reloadSnapshot()
+            } catch {
+                failure = error.localizedDescription
             }
         }
     }

@@ -141,6 +141,36 @@ struct GeneralPane: View {
 
     var body: some View {
         Form {
+            if !snapshot.accessibilityGranted {
+                Section {
+                    CheckingNotice(
+                        title: "Harper can\u{2019}t check your writing",
+                        detail: "Allow Harper in Privacy & Security \u{203a} Accessibility. If Harper is already on there, turn it off and on again. Checking starts on its own.",
+                        button: model.askedForAccessibility ? "Open System Settings Again" : "Open System Settings",
+                        action: model.allowAccessibility
+                    )
+                }
+            } else if !snapshot.checkingEnabled {
+                Section {
+                    CheckingNotice(
+                        title: "Checking is off",
+                        detail: "Harper isn\u{2019}t checking your writing in other apps.",
+                        button: "Turn On",
+                        action: model.turnOnChecking
+                    )
+                }
+            } else if !snapshot.checking {
+                // On but not running: it failed to start or stopped.
+                Section {
+                    CheckingNotice(
+                        title: "Harper stopped checking",
+                        detail: "Checking is on, but Harper isn\u{2019}t checking your writing right now.",
+                        button: "Start Again",
+                        action: model.turnOnChecking
+                    )
+                }
+            }
+
             Section("Writing") {
                 Picker(selection: Binding(get: { snapshot.dialect }, set: model.setDialect)) {
                     ForEach(Dialect.allCases) { Text($0.title).tag($0) }
@@ -209,6 +239,27 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+    }
+}
+
+/// Why Harper isn't checking text, and the one thing to do about it.
+struct CheckingNotice: View {
+    let title: String
+    let detail: String
+    let button: String
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.title3)
+                .accessibilityHidden(true)
+            RowLabel(title: title, detail: detail)
+            Spacer(minLength: 12)
+            Button(button, action: action)
+        }
+        .padding(.vertical, 2)
     }
 }
 

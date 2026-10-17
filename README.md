@@ -49,7 +49,8 @@ The source is [`harper-desktop/src-tauri/icons/icon.icon`](harper-desktop/src-ta
 ### Download
 
 Get the latest disk image from [Releases](https://github.com/taehee-pd/harperSwift/releases/latest). It runs on Apple Silicon Macs with macOS 13 or later, and updates itself from this repository's releases.
-The app is signed ad hoc rather than with an Apple Developer ID, so macOS blocks it the first time: after moving Harper to Applications, run `xattr -dr com.apple.quarantine /Applications/Harper.app`, or choose Open Anyway in System Settings → Privacy & Security.
+From 1.2.1, releases are signed with a Developer ID and notarized by Apple, so they open normally, and Harper keeps its Accessibility permission across updates.
+Releases up to 1.2.0 were signed ad hoc: macOS blocks them the first time (run `xattr -dr com.apple.quarantine /Applications/Harper.app`, or choose Open Anyway in System Settings → Privacy & Security). After the update to 1.2.1, Harper needs Accessibility access one last time: Settings opens to say so, and in Privacy & Security → Accessibility, turn Harper off and on again.
 
 ### Build it
 
