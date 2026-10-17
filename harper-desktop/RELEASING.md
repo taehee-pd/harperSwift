@@ -10,11 +10,29 @@ This fork numbers its own releases (starting at 1.0.0) and updates from its own 
 - Each release carries `latest.json`, the update archive (`Harper_<version>_aarch64.app.tar.gz`) and its signature. The app installs an update only when the archive's signature matches the public key.
 - Settings shows the latest version from the same `latest.json`.
 
-## The signing key
+## The updater key
 
 The private key lives outside the repository at `~/.tauri/harperswift-updater.key`; its public half is in `tauri.conf.json`. Keep a backup of it. Without it, existing installs can no longer be updated, and a new key needs a manual reinstall.
 
 Never commit the private key.
+
+## Developer ID signing and notarization
+
+Releases are signed with a Developer ID and notarized by Apple, so macOS opens them without warnings and keeps Harper's Accessibility permission across updates. (macOS ties that permission to the signing team. Releases up to 1.2.0 were signed ad hoc, which changes with every build, so each update lost the permission.)
+
+One-time setup, which needs a paid Apple Developer Program membership:
+
+1. **Certificate.** In Xcode, open Settings → Accounts, select the team, choose Manage Certificates, and add a **Developer ID Application** certificate. Only the team's Account Holder can create one. Check it with `security find-identity -v -p codesigning`.
+2. **Notarization key.** In App Store Connect, open Users and Access → Integrations → Team Keys and create a key with the Developer role. Download the `.p8` file (Apple offers it only once) to `~/.tauri/`, and note the key ID and the issuer ID shown on that page.
+3. **Settings file.** Create `~/.tauri/harperswift-notary.env`:
+
+   ```sh
+   APPLE_API_KEY=<key ID>
+   APPLE_API_ISSUER=<issuer ID>
+   APPLE_API_KEY_PATH=$HOME/.tauri/AuthKey_<key ID>.p8
+   ```
+
+Keep the `.p8` file and the certificate's private key out of the repository, like the updater key. If the keychain holds more than one Developer ID certificate, set `APPLE_SIGNING_IDENTITY` to the one to use.
 
 ## Release steps
 
@@ -25,14 +43,15 @@ Never commit the private key.
    harper-desktop/scripts/release-macos.sh
    ```
 
-   It builds the app and dmg (signed ad hoc), signs the update archive with your key, and writes everything, including `latest.json`, to `src-tauri/target/aarch64-apple-darwin/release/bundle/release/`.
+   It builds the app with the hardened runtime, signs it with your Developer ID, has Apple notarize it, and staples the ticket. It then signs and notarizes the dmg, checks both with Gatekeeper (`spctl`), signs the update archive with your updater key, and writes everything, including `latest.json`, to `src-tauri/target/aarch64-apple-darwin/release/bundle/release/`. Notarization usually takes a few minutes. The script stops if signing or any check fails.
 
    The macOS app has no web UI: Settings, the first-run setup and the editor are SwiftUI windows, and `src-tauri/tauri.macos.conf.json` embeds a placeholder page instead of the Svelte app. The script therefore skips harper.js, the wasm build and the other web packages.
 3. Create the GitHub release with the tag `v<version>` on that commit and upload all four files.
 
 ## Opening a downloaded build
 
-Releases are signed ad hoc, not with an Apple Developer ID, so macOS blocks them after download. To open one:
+Signed releases open normally after download.
 
-- Drag Harper to Applications, then run `xattr -dr com.apple.quarantine /Applications/Harper.app`, or
-- Try to open Harper once, then choose Open Anyway in System Settings → Privacy & Security.
+Releases up to 1.2.0 were signed ad hoc, so macOS blocks them after download. To open one, drag Harper to Applications and run `xattr -dr com.apple.quarantine /Applications/Harper.app`, or open Harper once and choose Open Anyway in System Settings → Privacy & Security.
+
+The first update from an ad hoc release to a signed one loses the Accessibility permission one last time: turn Harper off and on again in System Settings → Privacy & Security → Accessibility (or remove it and add it again). Say so in that release's notes, and update the install steps in the README.
