@@ -77,4 +77,25 @@ struct NativeWindowTests {
         grown.textDidChange("tehs", edited: NSRange(location: 3, length: 1), changeInLength: 1)
         #expect(grown.lints.isEmpty)
     }
+
+    @Test func readsTheClarityStatus() {
+        func status(_ text: String, enabled: Bool = true, available: Bool = true) -> ClarityStatus {
+            ClarityStatus(.init(enabled: enabled, available: available, status: text))
+        }
+
+        let ready = status("Ready: suggestions run on this Mac")
+        #expect(ready.state == .ready)
+        #expect(ready.title == "Ready")
+        #expect(ready.detail == "Suggestions run on this Mac")
+
+        #expect(status("Paused: Low Power Mode is on").state == .paused)
+        #expect(status("Unavailable: this Mac doesn't support Apple Intelligence", available: false).state == .unavailable)
+        #expect(status("Waiting: starts once Harper is checking your writing").state == .waiting)
+        // Turned off by the user: say so, whatever the model is doing.
+        #expect(status("Ready: suggestions run on this Mac", enabled: false).state == .off)
+        // Unavailable stays unavailable even though the switch reads off.
+        #expect(status("Unavailable: Clarity needs macOS 27 or later", enabled: false, available: false).state == .unavailable)
+        // Text without a state word still shows.
+        #expect(status("something new").detail == "Something new")
+    }
 }

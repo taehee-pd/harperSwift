@@ -257,9 +257,7 @@ struct GeneralPane: View {
                 }
                 .disabled(!snapshot.clarity.available)
 
-                LabeledContent("Status") {
-                    ClarityStatusLabel(clarity: snapshot.clarity)
-                }
+                ClarityStatusRow(status: ClarityStatus(snapshot.clarity))
             }
 
             Section("Startup and Updates") {
@@ -306,36 +304,107 @@ struct CheckingNotice: View {
     }
 }
 
-/// "Ready: suggestions run on this Mac" as a colored dot and the details.
-struct ClarityStatusLabel: View {
-    let clarity: SettingsSnapshot.Clarity
-
-    private var state: Substring {
-        clarity.status.split(separator: ":", maxSplits: 1).first ?? ""
+/// Where Clarity stands, from Rust's "State: details" text, such as "Paused: Low Power Mode is on".
+struct ClarityStatus: Hashable {
+    enum State: Hashable {
+        case ready, paused, waiting, unavailable, off
     }
 
-    private var detail: String {
-        let parts = clarity.status.split(separator: ":", maxSplits: 1)
-        let text = parts.count == 2 ? String(parts[1]) : clarity.status
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        return trimmed.prefix(1).uppercased() + trimmed.dropFirst()
+    let state: State
+    let title: String
+    let detail: String
+
+    init(_ clarity: SettingsSnapshot.Clarity) {
+        let parts = clarity.status.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        let word = parts.first ?? ""
+        let rest = parts.count == 2 ? parts[1] : clarity.status
+
+        if !clarity.enabled, clarity.available {
+            state = .off
+            title = "Off"
+            detail = "Turn on Clarity suggestions to use Apple Intelligence."
+            return
+        }
+        switch word {
+        case "Ready": state = .ready
+        case "Paused": state = .paused
+        case "Unavailable": state = .unavailable
+        default: state = .waiting
+        }
+        title = word.isEmpty ? "Waiting" : word
+        detail = rest.prefix(1).uppercased() + rest.dropFirst()
     }
 
-    private var color: Color {
-        guard clarity.enabled else { return .secondary }
+    var symbol: String {
         switch state {
-        case "Ready": return .green
-        case "Paused": return .orange
-        default: return .secondary
+        case .ready: "checkmark.circle.fill"
+        case .paused: "pause.circle.fill"
+        case .waiting: "clock.fill"
+        case .unavailable: "exclamationmark.circle.fill"
+        case .off: "minus.circle.fill"
         }
     }
+
+    var color: Color {
+        switch state {
+        case .ready: .green
+        case .paused, .unavailable: .orange
+        case .waiting, .off: .gray
+        }
+    }
+}
+
+/// The state in words beside a symbol, so it never rests on color alone, and the details under it.
+/// When the state changes, the symbol swaps in place and the words cross-fade.
+struct ClarityStatusRow: View {
+    let status: ClarityStatus
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(detail).foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            ZStack {
+                Image(systemName: status.symbol)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, status.color)
+                    .font(.system(size: 15))
+                    .id(status.state)
+                    .transition(reduceMotion ? .opacity : .iconSwap)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(status.title)
+                Text(status.detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .id(status)
+            .transition(.opacity)
+            Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .combine)
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 1), value: status)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Apple Intelligence: \(status.title). \(status.detail)")
+    }
+}
+
+private struct IconSwap: ViewModifier {
+    let scale: CGFloat
+    let opacity: Double
+    let blur: CGFloat
+
+    func body(content: Content) -> some View {
+        content.scaleEffect(scale).opacity(opacity).blur(radius: blur)
+    }
+}
+
+private extension AnyTransition {
+    /// A symbol grows in from a quarter of its size, unblurring as it fades in.
+    static var iconSwap: AnyTransition {
+        .modifier(
+            active: IconSwap(scale: 0.25, opacity: 0, blur: 4),
+            identity: IconSwap(scale: 1, opacity: 1, blur: 0)
+        )
     }
 }
 
