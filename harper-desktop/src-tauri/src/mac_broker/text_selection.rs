@@ -215,7 +215,14 @@ pub fn replace_span(
         // Accessibility but ignores text written through it, so the fix is typed into the
         // selection. The caret ends after the fix, as after typing; putting the old selection
         // back could land before the typed text, which arrives later.
-        if wait_for_selection(element, edited) && type_text(element, replacement) {
+        let started = Instant::now();
+        let selected = wait_for_selection(element, edited);
+        eprintln!(
+            "Chromium fix: selection {} after {} ms",
+            if selected { "applied" } else { "not applied" },
+            started.elapsed().as_millis()
+        );
+        if selected && type_text(element, replacement) {
             return Replacement::Replaced;
         }
         if let Some(previous) = previous_selection {
