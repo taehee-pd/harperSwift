@@ -71,8 +71,17 @@ struct SettingsView: View {
         } detail: {
             VStack(spacing: 0) {
                 if #unavailable(macOS 14) {
-                    // macOS 13 cannot put the title in the toolbar; show it above the content.
-                    ToolbarTitle(title: (pane ?? .general).title)
+                    // macOS 13 shows no SwiftUI toolbar in a window Harper makes itself, so the same
+                    // controls and the title sit above the content.
+                    HStack(spacing: 12) {
+                        navigationButtons
+                        Text((pane ?? .general).title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .frame(height: 52)
                 }
                 Group {
                     if let snapshot = model.snapshot {
@@ -88,21 +97,7 @@ struct SettingsView: View {
             .background(WindowTitle(title: (pane ?? .general).title))
             .toolbar {
                 ToolbarItem(placement: .navigation) {
-                    ControlGroup {
-                        Button(action: goBack) {
-                            Label("Back", systemImage: "chevron.left")
-                        }
-                        .disabled(backStack.isEmpty)
-                        .keyboardShortcut("[", modifiers: .command)
-                        .help("Back")
-                        Button(action: goForward) {
-                            Label("Forward", systemImage: "chevron.right")
-                        }
-                        .disabled(forwardStack.isEmpty)
-                        .keyboardShortcut("]", modifiers: .command)
-                        .help("Forward")
-                    }
-                    .controlGroupStyle(.navigation)
+                    navigationButtons
                 }
             }
         }
@@ -117,6 +112,25 @@ struct SettingsView: View {
         } message: { failure in
             Text(failure)
         }
+    }
+
+    /// Back and Forward between visited panes, like System Settings.
+    private var navigationButtons: some View {
+        ControlGroup {
+            Button(action: goBack) {
+                Label("Back", systemImage: "chevron.left")
+            }
+            .disabled(backStack.isEmpty)
+            .keyboardShortcut("[", modifiers: .command)
+            .help("Back")
+            Button(action: goForward) {
+                Label("Forward", systemImage: "chevron.right")
+            }
+            .disabled(forwardStack.isEmpty)
+            .keyboardShortcut("]", modifiers: .command)
+            .help("Forward")
+        }
+        .controlGroupStyle(.navigation)
     }
 
     /// Choosing a pane in the sidebar records the one it leaves, like System Settings.

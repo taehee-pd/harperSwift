@@ -86,20 +86,6 @@ struct SymbolTile: View {
     }
 }
 
-/// A title in the window's toolbar band, where System Settings shows the page name.
-struct ToolbarTitle: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: 15, weight: .semibold))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .frame(height: 52)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
 /// Sets the title of the window that shows this view; the unified toolbar displays it over the
 /// detail column, where System Settings shows the page name.
 struct WindowTitle: NSViewRepresentable {
